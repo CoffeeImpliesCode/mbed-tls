@@ -1,4 +1,4 @@
-# cross-test uses Zig 0.16's full Tier 1/2 matrix and standard `test` step.
+# cross-test uses Zig 0.17's full Tier 1/2 matrix and standard `test` step.
 # Targets without an executor are build-only; the profile sets no target subset.
 # Four build jobs and bounded build/run time.
 # SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later

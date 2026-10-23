@@ -4,29 +4,9 @@
 .{
     .name = .mbed_tls_consumer,
     .version = "0.1.0",
-    // The value Zig 0.16.0 printed for this package name and manifest. The
-    // field was deliberately absent, for the same reason it is absent in
-    // ../build.zig.zon: a fingerprint is an identifier the Zig toolchain
-    // *derives*, and a value written before a run would be invented. The first
-    // observed `zig build run` reported it:
-    //
-    //     build.zig.zon:4:2: error: missing top-level 'fingerprint' field;
-    //     suggested value: 0x409525d05c82894
-    //
-    // Nothing in this package's source or build graph reads it.
     .fingerprint = 0x409525d05c82894,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        // A relative path, not a registry or an archive URL. The consumer is
-        // the proof that `dep.module("mbedtls")` works from outside the package
-        // that defines it; resolving that through the network would make the
-        // proof depend on a published state of the world instead.
-        //
-        // The key is spelled `@"mbed-tls"` because it contains a hyphen and a
-        // Zig struct field name is an identifier, which cannot. That is the
-        // same reason the dependency's own `.name` is `.mbed_tls`: the map key
-        // here stays `"mbed-tls"`, which is what `b.dependency("mbed-tls", ...)`
-        // takes.
         .@"mbed-tls" = .{ .path = ".." },
     },
     .paths = .{

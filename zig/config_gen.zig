@@ -68,8 +68,9 @@ const Params = struct {
 
             /// Parse a supported architecture tag; unknown names return null.
             fn parse(name: []const u8) ?Name {
-                inline for (@typeInfo(Name).@"enum".fields) |field| {
-                    if (std.mem.eql(u8, name, field.name)) return @enumFromInt(field.value);
+                const info = @typeInfo(Name).@"enum";
+                inline for (info.field_names, info.field_values) |field_name, field_value| {
+                    if (std.mem.eql(u8, name, field_name)) return @fromBackingInt(@intCast(field_value));
                 }
                 return null;
             }

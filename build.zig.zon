@@ -8,7 +8,7 @@
     // Upstream library version, checked against build_info.h by build.zig.
     .version = "3.6.7",
     .fingerprint = 0xc6bca3feca8ae44a,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     // No external Zig dependencies.
     .dependencies = .{},
     .paths = .{
@@ -25,10 +25,8 @@
         // Test and smoke roots.
         "tests.zig",
         "smoke.zig",
-        // Separate consumer package.
-        "consumer/build.zig",
-        "consumer/build.zig.zon",
-        "consumer/src/main.zig",
+        // Standalone consumer package.
+        "consumer",
         // Upstream README under its original text.
         "README.upstream.md",
         // Fork provenance and licence records.

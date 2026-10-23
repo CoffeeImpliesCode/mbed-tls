@@ -13,7 +13,7 @@
 //! independently of linkage; call `load` before native calls.
 //!
 //! `zig build` installs libraries, headers, configuration, pkg-config and licences.
-//! `test` and `smoke` run; `consumer` builds or runs its package; `check`
+//! `test` and `smoke` run; `consumer` builds or runs its example; `check`
 //! compiles six targets without running. Root `cross-test.profile.sh` configures them.
 
 const std = @import("std");
@@ -433,7 +433,7 @@ const GeneratedConfig = struct {
 fn generateTargetConfig(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) GeneratedConfig {
     const generator = b.addExecutable(.{
         .name = b.fmt("mbed-tls-config-gen-{s}", .{
@@ -443,7 +443,7 @@ fn generateTargetConfig(
             .root_source_file = b.path(config_generator),
             // The host runs it; it writes about the target.
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
 
@@ -453,9 +453,9 @@ fn generateTargetConfig(
     }));
 
     run.addArg("--upstream");
-    run.addFileArg(b.path(upstream_config));
+    run.addFileArg2(b.path(upstream_config), .{});
     run.addArg("--output");
-    const header = run.addOutputFileArg(config_gen.output_basename);
+    const header = run.addOutputFileArg2(config_gen.output_basename, .{});
 
     // Pass resolved target, CPU, ABI, endianness and pointer width to the generator.
     run.addArg("--triple");
@@ -482,7 +482,7 @@ fn generateTargetConfig(
 fn add_library(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     platform: Platform,
     generated: GeneratedConfig,
     name: []const u8,
@@ -492,7 +492,7 @@ fn add_library(
     below: []const ?*std.Build.Step.Compile,
     public: bool,
     /// Requested archive linkage after target compatibility checks.
-    requested: std.builtin.LinkMode,
+    requested: std.lang.LinkMode,
 ) *std.Build.Step.Compile {
     const linkage = deliveredLinkage(target, requested);
     const lib = b.addLibrary(.{
@@ -592,8 +592,8 @@ const TargetGraph = struct {
 fn addGraph(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    linkage: std.builtin.LinkMode,
+    optimize: std.lang.Optimize,
+    linkage: std.lang.LinkMode,
     runtime_loaded: bool,
     public: bool,
 ) TargetGraph {
@@ -704,8 +704,8 @@ fn targetHasDynamicLinker(target: std.Build.ResolvedTarget) bool {
 
 fn deliveredLinkage(
     target: std.Build.ResolvedTarget,
-    requested: std.builtin.LinkMode,
-) std.builtin.LinkMode {
+    requested: std.lang.LinkMode,
+) std.lang.LinkMode {
     if (requested == .dynamic and !targetHasDynamicLinker(target)) {
         std.debug.panic(
             "mbed-tls: -Dlinkage=dynamic was asked for {s}, which has no dynamic " ++
@@ -723,7 +723,7 @@ fn add_install(
     platform: Platform,
     generated: GeneratedConfig,
     graph: TargetGraph,
-    linkage: std.builtin.LinkMode,
+    linkage: std.lang.LinkMode,
 ) void {
     b.installArtifact(graph.crypto);
     b.installArtifact(graph.x509);
@@ -770,7 +770,7 @@ fn add_pkg_config(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     platform: Platform,
-    linkage: std.builtin.LinkMode,
+    linkage: std.lang.LinkMode,
 ) void {
     const files = b.addWriteFiles();
     // Attach generated pkg-config metadata to the install graph.
@@ -805,8 +805,8 @@ fn add_target_check(
     b: *std.Build,
     step: *std.Build.Step,
     query: std.Target.Query,
-    optimize: std.builtin.OptimizeMode,
-    linkage: std.builtin.LinkMode,
+    optimize: std.lang.Optimize,
+    linkage: std.lang.LinkMode,
     runtime_loaded: bool,
 ) void {
     const cross_target = b.resolveTargetQuery(query);
@@ -850,57 +850,46 @@ fn add_target_check(
     // Checks compile targets; they do not run tests or examples.
 }
 
-fn runConsumer(
+fn add_consumer_step(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    linkage: std.builtin.LinkMode,
+    optimize: std.lang.Optimize,
+    linkage: std.lang.LinkMode,
     runtime_loaded: bool,
-) *std.Build.Step.Run {
-    // Use a nested build to avoid a cyclic manifest dependency.
+) void {
+    const triple = target.query.zigTriple(b.allocator) catch @panic("OOM");
+    defer b.allocator.free(triple);
+    const cpu = target.query.serializeCpuAlloc(b.allocator) catch @panic("OOM");
+    defer b.allocator.free(cpu);
+
     const run = b.addSystemCommand(&.{ b.graph.zig_exe, "build" });
     run.setName("consumer package");
-    run.setCwd(b.path("consumer"));
+    // Keep the caller's cwd for relative cache and Zig library environment paths.
+    run.addArg("--build-file");
+    run.addFileArg2(b.path("consumer/build.zig"), .{ .make_absolute = true });
+    for ([_][]const u8{ "ZIG_GLOBAL_CACHE_DIR", "ZIG_LIB_DIR" }) |key| {
+        if (b.graph.environ_map.get(key)) |value| run.setEnvironmentVariable(key, value);
+    }
     run.addArg(if (hostCanExecute(b, target)) "run" else "install");
-
-    const triple = target.result.zigTriple(b.allocator) catch @panic("unspellable target");
     run.addArg(b.fmt("-Dtarget={s}", .{triple}));
-    // The target triple does not encode the CPU model.
-    const cpu = target.query.serializeCpuAlloc(b.allocator) catch
-        @panic("the CPU model could not be serialized");
     run.addArg(b.fmt("-Dcpu={s}", .{cpu}));
     run.addArg(b.fmt("-Doptimize={s}", .{@tagName(optimize)}));
     run.addArg(b.fmt("-Dlinkage={s}", .{@tagName(linkage)}));
     run.addArg(b.fmt("-Druntime={s}", .{if (runtime_loaded) "true" else "false"}));
-
-    if (b.enable_darling) run.addArg("-fdarling");
-    if (b.enable_qemu) run.addArg("-fqemu");
-    if (b.enable_rosetta) run.addArg("-frosetta");
-    if (b.enable_wasmtime) run.addArg("-fwasmtime");
-    if (b.enable_wine) run.addArg("-fwine");
-    if (b.libc_runtimes_dir) |runtimes| run.addArgs(&.{ "--libc-runtimes", runtimes });
-
-    run.addArg("-j8");
-    run.addArg("--summary");
-    run.addArg("all");
-    if (b.cache_root.path) |cache| {
-        run.addArg("--cache-dir");
-        run.addArg(b.fmt("{s}/consumer", .{cache}));
-    }
-    if (b.graph.global_cache_root.path) |global_cache| {
-        run.addArg("--global-cache-dir");
-        run.addArg(global_cache);
-    }
-    if (!std.mem.eql(u8, b.install_prefix, b.pathFromRoot("zig-out"))) {
-        run.addArg("--prefix");
-        run.addArg(b.install_prefix);
-    }
-    if (b.args) |args| {
-        run.addArg("--");
-        run.addArgs(args);
-    }
+    run.addArg("--cache-dir");
+    run.addDirectoryArg2(
+        .{ .relative = .{ .base = .local_cache, .sub_path = "consumer" } },
+        .{ .make_absolute = true },
+    );
+    run.addArg("--prefix");
+    run.addDirectoryArg2(
+        .{ .relative = .{ .base = .install_prefix } },
+        .{ .make_absolute = true },
+    );
+    run.addArg("--");
+    run.addPassthruArgs();
     run.has_side_effects = true;
-    return run;
+    b.step("consumer", "Build or run the standalone consumer package").dependOn(&run.step);
 }
 
 fn hostCanExecute(b: *std.Build, target: std.Build.ResolvedTarget) bool {
@@ -924,14 +913,14 @@ pub fn build(b: *std.Build) void {
     const use_system = b.systemIntegrationOption(tls_name, .{ .default = system_default });
 
     const linkage_option = b.option(
-        std.builtin.LinkMode,
+        std.lang.LinkMode,
         "linkage",
         "Which delivery of the three archives to build. The default is .static " ++
             "for a bundled graph, which is what upstream's own Makefile produces; " ++
             "a target with no dynamic linker refuses .dynamic rather than handing " ++
             "back an archive under that name.",
     );
-    const linkage: std.builtin.LinkMode = linkage_option orelse .static;
+    const linkage: std.lang.LinkMode = linkage_option orelse .static;
 
     const runtime_loaded = b.option(
         bool,
@@ -1033,12 +1022,10 @@ pub fn build(b: *std.Build) void {
 
     const run_example = b.addRunArtifact(example);
     run_example.has_side_effects = true;
-    if (b.args) |args| run_example.addArgs(args);
+    run_example.addPassthruArgs();
     b.step("smoke", "Run the deterministic example program").dependOn(&run_example.step);
 
-    b.step("consumer", "Build or run the consumer/ package for the selected target").dependOn(
-        &runConsumer(b, target, optimize, delivered, runtime_loaded).step,
-    );
+    add_consumer_step(b, target, optimize, linkage, runtime_loaded);
 
     const check_step = b.step(
         "check",

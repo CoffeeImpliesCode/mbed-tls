@@ -55,7 +55,7 @@ const rfc1321_sha1_abc = [_]u8{
 };
 
 /// RFC 4231 §4.2 test case 1.
-const rfc4231_case1_key = [_]u8{0x0b} ** 20;
+const rfc4231_case1_key: [20]u8 = @splat(0x0b);
 const rfc4231_case1_message = "Hi There";
 const rfc4231_case1_tag = [_]u8{
     0xb0, 0x34, 0x4c, 0x61, 0xd8, 0xdb, 0x38, 0x53, 0x5c, 0xa8, 0xaf, 0xce, 0xaf, 0x0b, 0xf1, 0x2b,
@@ -75,7 +75,7 @@ const sp800_38a_plaintext = [_]u8{ 0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x9
 const sp800_38a_ciphertext = [_]u8{ 0x76, 0x49, 0xab, 0xac, 0x81, 0x19, 0xb2, 0x46, 0xce, 0xe9, 0x8e, 0x9b, 0x12, 0xe9, 0x19, 0x7d };
 
 /// NIST SP 800-38D Test Case 2 with empty AAD; ciphertext and tag are independent fixtures.
-const gcm_tc2_key = [_]u8{0} ** 16;
+const gcm_tc2_key: [16]u8 = @splat(0);
 const gcm_tc2_iv = [_]u8{ 0xca, 0xfe, 0xba, 0xbe, 0xfa, 0xce, 0xdb, 0xad, 0xde, 0xca, 0xf8, 0x88 };
 const gcm_tc2_plaintext = [_]u8{
     0xd9, 0x31, 0x32, 0x25, 0xf8, 0x84, 0x06, 0xe5, 0xa5, 0x59, 0x09, 0xc5, 0xaf, 0xf5, 0x26, 0x9a,
@@ -184,7 +184,7 @@ test "an empty input hashes to the published empty-message digest" {
 test "a digest buffer of the wrong length is refused, not truncated" {
     try loadProvider();
     // The sentinel verifies that failure leaves the short output untouched.
-    var short: [16]u8 = [_]u8{0xff} ** 16;
+    var short: [16]u8 = @splat(0xff);
     try testing.expectError(
         error.OutputLengthWrong,
         mbedtls.hash(.sha256, "abc", &short),
@@ -236,7 +236,7 @@ test "AES-128-CBC refuses a length the mode cannot carry" {
     defer cipher.deinit();
     var iv = sp800_38a_iv;
     // Seventeen bytes cannot be represented by CBC's whole-block mode.
-    var long_plaintext: [17]u8 = [_]u8{0} ** 17;
+    var long_plaintext: [17]u8 = @splat(0);
     @memcpy(long_plaintext[0..sp800_38a_plaintext.len], &sp800_38a_plaintext);
     var out: [17]u8 = undefined;
     // CBC rejects incomplete blocks before calling Mbed TLS.
@@ -354,11 +354,11 @@ test "a key of the wrong length is refused and the context is already released" 
     try loadProvider();
     try testing.expectError(
         error.BadKeyLength,
-        mbedtls.Aes128Cbc.initEncrypt(&[_]u8{0} ** 15),
+        mbedtls.Aes128Cbc.initEncrypt(&@as([15]u8, @splat(0))),
     );
     try testing.expectError(
         error.BadKeyLength,
-        mbedtls.ChaCha20Poly1305.init(&[_]u8{0} ** 31),
+        mbedtls.ChaCha20Poly1305.init(&@as([31]u8, @splat(0))),
     );
     // Failed initialization releases its context before returning.
 }

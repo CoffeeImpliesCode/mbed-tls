@@ -1,7 +1,7 @@
 # mbed-tls
 
 Mbed TLS 3.6.7 provides TLS, X.509, cryptographic primitives and the PSA Cryptography API.
-This Zig 0.16.0 package adds typed wrappers, a translated C surface and optional runtime loading.
+This Zig 0.17.0 package adds typed wrappers, a translated C surface and optional runtime loading.
 
 ## Source deviations
 
@@ -45,11 +45,11 @@ The Nix flake provides static and shared packages for `x86_64-linux`, `aarch64-l
 
 ## Consumption
 
-Add the package to a dependent's `build.zig.zon`:
+Place a local checkout inside the dependent package root. Zig 0.17 rejects local dependency paths outside that root.
 
 ```zig
 .dependencies = .{
-    .@"mbed-tls" = .{ .path = "../mbed-tls" },
+    .@"mbed-tls" = .{ .path = "deps/mbed-tls" },
 },
 ```
 

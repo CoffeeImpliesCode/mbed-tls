@@ -107,7 +107,7 @@ fn cryptoChecks(w: *std.Io.Writer) !void {
     try checkBytes(w, "SHA-256 of abc (FIPS 180-4 B)", &digest, sha256_abc);
 
     var tag: [32]u8 = undefined;
-    try mbedtls.hmac(.sha256, &([_]u8{0x0b} ** 20), "Hi There", &tag);
+    try mbedtls.hmac(.sha256, &@as([20]u8, @splat(0x0b)), "Hi There", &tag);
     try checkBytes(w, "HMAC-SHA-256 (RFC 4231 case 1)", &tag, hmac_tag);
 
     var cipher = try mbedtls.Aes128Cbc.initEncrypt(&[_]u8{
@@ -126,7 +126,7 @@ fn cryptoChecks(w: *std.Io.Writer) !void {
     }, &block_out);
     try checkBytes(w, "AES-128-CBC (SP 800-38A F.2.1)", &block_out, cbc_ciphertext);
 
-    var gcm = try mbedtls.Aes128Gcm.init(&[_]u8{0} ** 16);
+    var gcm = try mbedtls.Aes128Gcm.init(&@as([16]u8, @splat(0)));
     defer gcm.deinit();
     var gcm_out: [64]u8 = undefined;
     var gcm_tag_out: [16]u8 = undefined;

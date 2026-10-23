@@ -1036,12 +1036,12 @@ pub const TlsConfig = struct {
 
     /// The lowest protocol version this endpoint will negotiate.
     pub fn minVersion(self: *TlsConfig, version: ProtocolVersion) void {
-        c.mbedtls_ssl_conf_min_tls_version(&self.conf, @intCast(@intFromEnum(version)));
+        c.mbedtls_ssl_conf_min_tls_version(&self.conf, @intCast(@backingInt(version)));
     }
 
     /// The highest protocol version this endpoint will negotiate.
     pub fn maxVersion(self: *TlsConfig, version: ProtocolVersion) void {
-        c.mbedtls_ssl_conf_max_tls_version(&self.conf, @intCast(@intFromEnum(version)));
+        c.mbedtls_ssl_conf_max_tls_version(&self.conf, @intCast(@backingInt(version)));
     }
 
     /// Set the borrowed ALPN list in preference order.

@@ -15,7 +15,8 @@ The vendored `src/` tree and `README.upstream.md` are unchanged. These fork-owne
 | `runtime/loader.zig` | Shared loader keeps its MIT SPDX line. `NOTICE.md` records this shared-file exception. |
 | `tests.zig` | Tests wrapper ownership and loads `MBED_TLS_TEST_PROVIDER` in runtime mode without treating `std.testing.allocator` as a leak oracle for C allocations. |
 | `smoke.zig` | Provides a deterministic linked example and loads an explicit provider in runtime mode. |
-| `consumer/src/main.zig` | Exercises the separate package dependency and loads an explicit provider in runtime mode. |
+| `consumer/build.zig`, `consumer/build.zig.zon` | Define a standalone package that consumes `dep.module("mbedtls")` and embeds the dependency's published TLS fixtures. |
+| `consumer/src/main.zig` | Imports the `mbedtls` module and loads an explicit provider in runtime mode. |
 
 The typed facade does not wrap the PSA key lifecycle or DTLS. Those APIs remain available through `c`, and `Socket` is stream-only.
 
@@ -30,7 +31,7 @@ Runtime mode requires an explicit provider. The loader checks the 3.6 ABI family
 - Static linkage is the default. Dynamic linkage keeps upstream's ABI versions. A target without a dynamic linker rejects dynamic linkage instead of returning a static archive under a shared name.
 - `-Druntime=true` selects explicit provider dispatch independently of linkage. The archives are still built and installed, but the facade does not link them in runtime mode. The loader has no fallback, retry, or unload operation.
 - `-Dsystem=true` and `-fsys=mbedtls` fail during configuration. The generated feature set controls public struct layouts, so bundled headers cannot safely describe an unrelated system library.
-- `consumer/` is a separate package with a relative dependency. It checks the published module and artifact interface from outside this package.
+- The `consumer` step launches the standalone package with `--build-file` and a separate local cache. Zig 0.17 receives global-cache and library paths through `ZIG_GLOBAL_CACHE_DIR` and `ZIG_LIB_DIR`.
 
 ## Platform boundaries
 

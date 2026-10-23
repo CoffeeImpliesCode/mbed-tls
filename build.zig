@@ -1,96 +1,20 @@
-//! The build graph for the Mbed TLS SDK.
+//! Build graph for Mbed TLS 3.6.7 from vendored `src/`; no build-time download.
 //!
-//! Mbed TLS 3.6.7, compiled from the vendored release tarball in `src/`. There
-//! is no CMake, no autotools, no Make and no build-time download anywhere in
-//! this graph: `zig build` is the only entry point, and every byte it compiles
-//! is in this repository.
+//! Each target builds three upstream archives from explicit source lists,
+//! generates target configuration, translates 80 public headers and exposes
+//! one `mbedtls` module.
 //!
-//! ## What one target graph produces
+//! `zig/config_gen.zig` runs on the host with target facts. It writes
+//! `mbed_tls_target_config.h` via `MBEDTLS_CONFIG_FILE`; the matching
+//! configuration installs as `include/mbedtls/mbedtls_config.h`.
 //!
-//!   * Three archives, named the way upstream names them and in upstream's
-//!     layering order: `libmbedcrypto`, `libmbedx509`, `libmbedtls`. Each is a
-//!     complete `addLibrary` over its own explicit list of translation units,
-//!     taken from `src/library/CMakeLists.txt`'s `src_crypto`, `src_x509` and
-//!     `src_tls` lists rather than from a glob.
-//!   * One **generated configuration header for that target**, written by
-//!     `zig/config_gen.zig` in a dependent step. See "The generated
-//!     configuration" below.
-//!   * One translate-c step over `zig/translate.h`, which reaches eighty public
-//!     headers.
-//!   * One facade module, `mbedtls`, carrying the translation and linking all
-//!     three archives. `zig/root.zig` is one source over one translation of
-//!     all eighty public headers, so there is no per-layer surface to publish:
-//!     a module called `mbedcrypto` would still declare the TLS API, and would
-//!     still have to link `libmbedtls` for the wrappers that reach it. A
-//!     dependent writes `dep.module("mbedtls")`, which is what `consumer/`
-//!     is built to prove.
+//! `-Dsystem` is refused. `-Dlinkage` defaults to `.static`; `.dynamic`
+//! requires a dynamic linker. `-Druntime` defaults false and selects dispatch
+//! independently of linkage; call `load` before native calls.
 //!
-//! ## The generated configuration
-//!
-//! Mbed TLS's configuration is the feature set *and* several struct layouts and
-//! buffer sizes, and parts of it genuinely depend on which target is being
-//! built. Upstream's own answer to that is its `Configure` script, which this
-//! package does not run: it is Perl, it needs the host's answers, and it writes
-//! into the source tree.
-//!
-//! Instead, `zig/config_gen.zig` is a host program that takes the *target's*
-//! facts as command-line arguments - architecture, operating system, ABI,
-//! endianness, pointer width - reads this package's own copy of upstream's
-//! `src/include/mbedtls/mbedtls_config.h`, and writes one complete
-//! `mbed_tls_target_config.h` for that target. It is reached through
-//! `-DMBEDTLS_CONFIG_FILE='"mbed_tls_target_config.h"'`, which upstream documents
-//! for exactly this purpose at `src/include/mbedtls/build_info.h:112-116`, with
-//! the generated directory on the include path.
-//!
-//! **The name is deliberately not `mbedtls_config.h`.** `build_info.h` reaches
-//! that name with a *quoted* include, which resolves beside `build_info.h`
-//! before any `-I` directory is consulted, so a file of that name on the include
-//! path would never be found. The generated file is therefore reached by name
-//! through `MBEDTLS_CONFIG_FILE` and cannot shadow anything, and the four
-//! target-derived decisions it applies are each anchored to an upstream line in
-//! the generated file's own banner.
-//!
-//! The generated header is a build output and lands in the build cache like any
-//! other. A separate copy of it *is* installed, as
-//! `include/mbedtls/mbedtls_config.h`, because the configuration a dependent
-//! compiles against has to be the configuration this library was built with;
-//! `addInstallGeneratedConfig` below says how, and why that one is an install
-//! while the build-internal name is not.
-//!
-//! ## Options
-//!
-//!   * `-Dsystem` - default false. Supplies the default of
-//!     `systemIntegrationOption("mbedtls")`; a build runner that decides the mode
-//!     itself (`-fsys=mbedtls`) overrides it. There is **no** system mode in this
-//!     package yet: see FORK-NOTES.md. A `system` build is therefore refused at
-//!     configure time rather than silently producing a bundled library under a
-//!     system-mode spelling.
-//!   * `-Dlinkage` - default `.static` for a bundled graph. `.dynamic` delivers
-//!     shared objects. A target with no dynamic linker refuses `.dynamic` rather
-//!     than handing back an archive under a name the caller did not ask for.
-//!   * `-Druntime` - default false. Selects the *dispatch*, not the linkage: with
-//!     it, the facade's `c` import is the generated runtime dispatch and the
-//!     archive is **not** linked, so the symbols arrive through the platform
-//!     loader after an explicit `load`. Linking the archive as well would let the
-//!     linker resolve them statically and the runtime route would quietly become
-//!     a linked one.
-//!
-//! ## Steps
-//!
-//!   * `zig build` - the default install step: the three archives, the public
-//!     headers, the generated configuration, a pkg-config file and the licence
-//!     records.
-//!   * `zig build smoke` - run the deterministic example program.
-//!   * `zig build test` - run the behavioural tests for whatever `-Dtarget`
-//!     names, through an `addRunArtifact`, so a foreign target is left to
-//!     whichever executor the cross-test harness detects and this build does not
-//!     decide that.
-//!   * `zig build consumer` - build or run the separate `consumer/` package.
-//!   * `zig build check` - compile the libraries, the facade, the tests and the
-//!     example for each of the six cross targets without running any of them.
-//!
-//! Nothing in this file reads `cross-test.profile.sh`; the harness discovers that
-//! file by name from the package root.
+//! `zig build` installs libraries, headers, configuration, pkg-config and licences.
+//! `test` and `smoke` run; `consumer` builds or runs its package; `check`
+//! compiles six targets without running. Root `cross-test.profile.sh` configures them.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -102,28 +26,17 @@ const config_gen = @import("zig/config_gen.zig");
 const manifest_version = std.SemanticVersion.parse(manifest.version) catch
     @panic("build.zig.zon .version is not a semantic version");
 
-/// The upstream version, as `src/include/mbedtls/build_info.h:27-29` states it
-/// (and `:36-38` for the packed number and the two strings).
-///
-/// Kept as a value rather than parsed from the header because a build function
-/// cannot read a source file, and compared against the manifest above so the two
-/// cannot drift apart unnoticed.
+/// Upstream version from `src/include/mbedtls/build_info.h`; checked against the manifest.
 const upstream_version = std.SemanticVersion{
     .major = 3,
     .minor = 6,
     .patch = 7,
 };
 
-/// The ABI numbers of the three shared objects, which upstream fixes in
-/// `src/library/Makefile`: `SOEXT_TLS=so.21`, `SOEXT_X509=so.7`,
-/// `SOEXT_CRYPTO=so.16`.
+/// Upstream shared-library ABI numbers from `src/library/Makefile`.
 const crypto_abi = std.SemanticVersion{ .major = 16, .minor = 0, .patch = 0 };
 const x509_abi = std.SemanticVersion{ .major = 7, .minor = 0, .patch = 0 };
 const tls_abi = std.SemanticVersion{ .major = 21, .minor = 0, .patch = 0 };
-
-// ---------------------------------------------------------------------------
-// Paths
-// ---------------------------------------------------------------------------
 
 const source_dir = "src";
 const include_dir = "src/include";
@@ -135,23 +48,12 @@ const upstream_config = "src/include/mbedtls/mbedtls_config.h";
 const test_source = "tests.zig";
 const smoke_source = "smoke.zig";
 
-/// The dependency-map key and the base of every module and artifact name.
-///
-/// A dependent writes `b.dependency("mbed-tls", ...)` - the hyphen, because the
-/// directory has one - and then `dep.module("mbedtls")`, `dep.artifact("mbedtls")`
-/// and so on. The three library names are upstream's own.
+/// Dependency key is `mbed-tls`; module and archive names are upstream's.
 const lib_name = "mbedcrypto";
 const x509_name = "mbedx509";
 const tls_name = "mbedtls";
 
-// ---------------------------------------------------------------------------
-// The closure, as upstream lists it
-//
-// Explicit per-file lists, never globs: a glob would change what this package
-// compiles the next time a file appears, and it would do so in a commit whose
-// diff is one line. These are `src/library/CMakeLists.txt`'s `src_crypto`,
-// `src_x509` and `src_tls`, in upstream's order.
-// ---------------------------------------------------------------------------
+// Explicit source lists follow upstream's CMake groups and order.
 
 const crypto_sources = [_][]const u8{
     "src/library/aes.c",
@@ -203,12 +105,7 @@ const crypto_sources = [_][]const u8{
     "src/library/pkcs12.c",
     "src/library/pkcs5.c",
     "src/library/pkparse.c",
-    // `src/library/ecp_curves_new.c` is on disk and in no list, and that is
-    // upstream's own decision: `src/library/CMakeLists.txt` says it is "kept
-    // only for compatibility with custom build systems in LTS branches". It is
-    // vendored because it is upstream's tree, and not compiled because no
-    // supported build includes it. Saying so here is the difference between a
-    // recorded decision and an omission a reader has to guess about.
+    // Present upstream but excluded from its CMake source lists.
     "src/library/pkwrite.c",
     "src/library/platform.c",
     "src/library/platform_util.c",
@@ -243,12 +140,7 @@ const crypto_sources = [_][]const u8{
     "src/library/version_features.c",
 };
 
-/// The two `3rdparty` archives' units, from `3rdparty/Makefile.inc`,
-/// `3rdparty/everest/Makefile.inc` and `3rdparty/p256-m/Makefile.inc`.
-///
-/// Compiled into `libmbedcrypto` because that is where upstream's
-/// `src/library/Makefile` puts them (`OBJS_CRYPTO += $(THIRDPARTY_CRYPTO_OBJECTS)`),
-/// not because this package needs them for its own surface.
+/// Third-party units from upstream's Makefiles, linked into `libmbedcrypto`.
 const thirdparty_sources = [_][]const u8{
     "src/3rdparty/everest/library/everest.c",
     "src/3rdparty/everest/library/x25519.c",
@@ -298,61 +190,23 @@ const tls_sources = [_][]const u8{
     "src/library/ssl_tls13_generic.c",
 };
 
-/// The one FreeBSD-only define this build has to add, and why.
-///
-/// `src/library/platform_util.c:14-16` opens by defining `_POSIX_C_SOURCE
-/// 200112L` on every platform except OpenBSD, so that `gmtime_r` survives
-/// `-std=c11`. FreeBSD reads that same define in the opposite direction from
-/// glibc: its `sys/_visible.h` (Zig's copy of FreeBSD 14's `sys/cdefs.h`
-/// visibility block) takes the `_POSIX_C_SOURCE` branch at
-/// `generic-freebsd/sys/_visible.h:123` and, on that branch, never defines
-/// `__BSD_VISIBLE` at all - `generic-freebsd/strings.h:53-54` gates
-/// `explicit_bzero` on exactly that macro. So `platform_util.c:43-45`, which
-/// turns `MBEDTLS_PLATFORM_HAS_EXPLICIT_BZERO` on for FreeBSD >= 11.0.3,
-/// then reaches a function its own header will not declare, and
-/// `platform_util.c:98` fails with `call to undeclared function
-/// 'explicit_bzero'`.
-///
-/// FreeBSD's own escape hatch is the macro, not a flag: `_visible.h:207`
-/// defines `__BSD_VISIBLE 1` in the "default environment: show everything"
-/// branch, and `_DEFAULT_SOURCE` does not reach that branch on this target -
-/// verified against the pinned compiler, where `-D_DEFAULT_SOURCE` still
-/// leaves `__BSD_VISIBLE` undefined while `-D__BSD_VISIBLE=1` compiles
-/// `platform_util.c:98` cleanly. Restating the macro on the command line is
-/// what upstream's own `Hacl_Curve25519_joined.c:21-28` does for the same
-/// problem with `_BSD_SOURCE`/`_DEFAULT_SOURCE`, and it is the narrowest
-/// statement: it re-opens the one declaration the closure calls, without
-/// redefining `_POSIX_C_SOURCE` under upstream's feet or editing `src/`.
-///
-/// OpenBSD needs none of this: `platform_util.c:14` already excludes it from
-/// the `_POSIX_C_SOURCE` define, and `generic-openbsd/sys/cdefs.h:430-431`
-/// defaults `__BSD_VISIBLE` to 1. So the define is scoped to FreeBSD.
+/// FreeBSD needs `__BSD_VISIBLE=1` for `explicit_bzero` under upstream's `_POSIX_C_SOURCE` (`src/library/platform_util.c:43-45`).
 const freebsd_visibility_flag = "-D__BSD_VISIBLE=1";
 
-/// The flags every target gets.
+/// Flags for targets other than FreeBSD.
 const c_flags = [_][]const u8{
     "-std=c11",
     "-D_GNU_SOURCE",
 };
 
-/// The same two, plus the one FreeBSD-only define.
+/// Adds FreeBSD's visibility define.
 const freebsd_c_flags = [_][]const u8{
     "-std=c11",
     "-D_GNU_SOURCE",
     freebsd_visibility_flag,
 };
 
-/// The C flags for one target.
-///
-/// C11, with the GNU extensions upstream's own flags ask for.
-///
-/// Upstream builds with the compiler's default standard plus warnings; there is
-/// no `-std=` anywhere in `src/library/Makefile`. This pins one so it is a fact
-/// of this build rather than a fact about whichever clang happens to be
-/// installed, and `-D_GNU_SOURCE` because `net_sockets.c:33-68` reaches
-/// `<netdb.h>`, `<sys/select.h>` and friends that glibc hides without it.
-/// FreeBSD additionally needs `freebsd_visibility_flag`; every other target
-/// gets the same two flags it always did.
+/// C11 with GNU extensions; FreeBSD also needs its visibility define.
 fn cFlags(platform: Platform) []const []const u8 {
     return switch (platform.freebsd) {
         false => &c_flags,
@@ -360,7 +214,7 @@ fn cFlags(platform: Platform) []const []const u8 {
     };
 }
 
-/// The public headers, installed flat into `include/`.
+/// Public headers installed by the build.
 const public_headers = [_][]const u8{
     "src/include/mbedtls/aes.h",
     "src/include/mbedtls/aria.h",
@@ -375,9 +229,7 @@ const public_headers = [_][]const u8{
     "src/include/mbedtls/chacha20.h",
     "src/include/mbedtls/chachapoly.h",
     "src/include/mbedtls/cipher.h",
-    // `build_info.h:192` includes this one unconditionally, at the end of the
-    // header and outside every `#if`, so no installed header is usable without
-    // it. It was the next failure after `private_access.h` was added.
+    // Required by upstream's `build_info.h` in every configuration.
     "src/include/mbedtls/check_config.h",
     "src/include/mbedtls/cmac.h",
     "src/include/mbedtls/compat-2.x.h",
@@ -419,11 +271,7 @@ const public_headers = [_][]const u8{
     "src/include/mbedtls/platform_util.h",
     "src/include/mbedtls/poly1305.h",
     "src/include/mbedtls/psa_util.h",
-    // `private_access.h` is not optional: 40 of the headers installed below
-    // reach it by quoted include (`src/include/mbedtls/sha256.h:15` is the
-    // shortest), so without it a plain `#include <mbedtls/sha256.h>` against
-    // the installed prefix alone fails on a missing file rather than on
-    // anything the consumer did.
+    // Included by public headers; install it with them.
     "src/include/mbedtls/private_access.h",
     "src/include/mbedtls/ripemd160.h",
     "src/include/mbedtls/rsa.h",
@@ -444,10 +292,7 @@ const public_headers = [_][]const u8{
     "src/include/mbedtls/x509_crt.h",
     "src/include/mbedtls/x509_csr.h",
     "src/include/psa/build_info.h",
-    // Reached from `build_info.h:138` and from `mbedtls/config_psa.h`, which
-    // is itself installed. The four `crypto_adjust_*` headers are reached from
-    // `config_psa.h` the same way. All five are in the installed closure
-    // whether or not a consumer names them.
+    // Included by installed PSA headers.
     "src/include/psa/crypto_config.h",
     "src/include/psa/crypto_adjust_auto_enabled.h",
     "src/include/psa/crypto_adjust_config_dependencies.h",
@@ -472,7 +317,7 @@ const public_headers = [_][]const u8{
     "src/include/psa/crypto_values.h",
 };
 
-/// The licence and provenance records installed beside the libraries.
+/// Licence and provenance records installed with the package.
 const licence_records = [_][]const u8{
     "src/LICENSE",
     "NOTICE.md",
@@ -481,18 +326,8 @@ const licence_records = [_][]const u8{
     "README.upstream.md",
 };
 
-// ---------------------------------------------------------------------------
-// The check matrix
-// ---------------------------------------------------------------------------
-
-/// The six cross targets `check` compiles for.
-///
-/// `wasm32-wasi` is in this list, not in `refused_check_targets`: Mbed TLS 3.6
-/// compiles there, and the one boundary the platform imposes is expressed where
-/// it belongs - `zig/config_gen.zig` turns `MBEDTLS_NET_C` off for it, so the
-/// `mbedtls_net_*` transport has no symbols, and the tests that drive a loopback
-/// socket are *compiled* by `check` and *run* only by `test`, which the
-/// cross-test harness runs under wasmtime or reports as build-only.
+/// Compile targets. The generator disables `MBEDTLS_NET_C` for WASI.
+/// `check` compiles only; `test` runs where an executor is available.
 const check_targets = [_]std.Target.Query{
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
@@ -502,12 +337,7 @@ const check_targets = [_]std.Target.Query{
     .{ .cpu_arch = .wasm32, .os_tag = .wasi },
 };
 
-/// Targets this build refuses outright.
-///
-/// None. The refusal mechanism is kept because it is how a target gets dropped
-/// *deliberately* and recorded, rather than quietly: `checkMatrixPartition`
-/// below panics if either list and `refusalFor` disagree, so moving a row out of
-/// `check_targets` is a change with a name in it.
+/// Targets refused by this build; currently none.
 const refused_check_targets = [_]std.Target.Query{};
 
 fn refusalFor(os_tag: std.Target.Os.Tag) ?[]const u8 {
@@ -544,32 +374,19 @@ fn checkMatrixPartition(b: *std.Build) void {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Platform
-// ---------------------------------------------------------------------------
-
-/// Everything about a target that changes the C compile line or the way the
-/// archives are named.
-///
-/// One function, consulted by the library, the translation, the install and the
-/// configure-time print, so the six cross cells cannot drift from the published
-/// one.
+/// Target facts that affect C flags, linkage, or archive naming.
 const Platform = struct {
-    /// True where the target has a dynamic linker at all.
+    /// Target has a dynamic linker.
     dynamic_linker: bool,
-    /// True on Windows, where the module definition file is how an export list
-    /// is stated.
+    /// Target is Windows.
     windows: bool,
-    /// True where `libm` is a separate library rather than part of libc.
+    /// Target uses a separate `libm`.
     separate_m: bool,
-    /// True where `libdl` is a separate library.
+    /// Target uses a separate `libdl`.
     separate_dl: bool,
-    /// True on macOS, where an executable records its dependencies with
-    /// `@loader_path` rather than `$ORIGIN`.
+    /// Target uses Mach-O load paths.
     macho: bool,
-    /// True on FreeBSD, where this build has to restate the declaration
-    /// environment FreeBSD's own headers otherwise narrow. See
-    /// `freebsd_visibility_flag`.
+    /// FreeBSD needs visibility for upstream's `explicit_bzero`.
     freebsd: bool,
 
     fn forTarget(target: std.Target) Platform {
@@ -577,11 +394,7 @@ const Platform = struct {
             .dynamic_linker = std.Target.DynamicLinker.kind(target.os.tag) != .none,
             .windows = target.os.tag == .windows,
             .freebsd = target.os.tag == .freebsd,
-            // Upstream's own `library/Makefile` does not link either of these:
-            // nothing in the closure calls into libm or dlopen. They are recorded
-            // here because a shared object on glibc needs libm's symbols
-            // resolved from somewhere, and a consumer linking the archive
-            // statically inherits the dependency.
+            // Record target-specific libm and libdl dependencies for consumers.
             .separate_m = switch (target.os.tag) {
                 .linux, .freebsd, .netbsd, .openbsd, .dragonfly, .illumos => true,
                 else => false,
@@ -607,35 +420,16 @@ const Platform = struct {
     }
 };
 
-// ---------------------------------------------------------------------------
-// The generated configuration
-// ---------------------------------------------------------------------------
-
-/// What `generateTargetConfig` produced for one target.
+/// Target configuration produced by `generateTargetConfig`.
 const GeneratedConfig = struct {
-    /// The directory the generated header is in.
-    ///
-    /// `Step.Run.addOutputFileArg` creates a cache directory per run and returns
-    /// a path inside it; that directory is what goes on the include path, because
-    /// the header is reached by a bare name through `MBEDTLS_CONFIG_FILE`.
+    /// Include directory containing the generated header.
     directory: std.Build.LazyPath,
-    /// The header itself, for the dependency edge and for the install copy.
+    /// Generated header used by compile, translation and install.
     header: std.Build.LazyPath,
 };
 
-/// Runs `zig/config_gen.zig` for one target and returns what it wrote.
-///
-/// The generator is a host program, so it *runs* on the machine doing the build
-/// while writing a header that describes the *target*: every fact it uses is an
-/// argument, and `b.graph.host` appears in this function only as the generator's
-/// own execution target. That is the distinction this whole mechanism rests on -
-/// the host may compute, the target decides.
-///
-/// The returned `Run` step is not resolved here. It is attached as a dependency
-/// of every step that reads the header, below and in `addGraph`, so the header
-/// is written before the compile that includes it. A `LazyPath` created while
-/// `build()` runs is a name resolved in a dependent make step, not a file read
-/// now.
+/// Run the host generator with resolved target facts and return its output paths.
+/// Consumers of the header must depend on the generator step.
 fn generateTargetConfig(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -663,11 +457,7 @@ fn generateTargetConfig(
     run.addArg("--output");
     const header = run.addOutputFileArg(config_gen.output_basename);
 
-    // Every fact the generator is allowed to use. `-Dtarget` supplies the triple;
-    // `-Dcpu` supplies a CPU model the triple does not carry
-    // (`lib/std/Target/Query.zig` serialises the model separately), and the
-    // arch/os/abi tags come out of the resolved target rather than out of the
-    // query string, so a `-Dtarget=` with an ABI suffix is read correctly.
+    // Pass resolved target, CPU, ABI, endianness and pointer width to the generator.
     run.addArg("--triple");
     run.addArg(target.result.zigTriple(b.allocator) catch @panic("unspellable target"));
     run.addArg("--arch");
@@ -681,25 +471,13 @@ fn generateTargetConfig(
     run.addArg("--ptr-bits");
     run.addArg(if (std.Target.ptrBitWidth(&target.result) == 64) "64" else "32");
 
-    // `_ = optimize` is not needed: the generator's decisions are the target's
-    // and nothing here changes with the optimize mode. It is in the signature
-    // anyway so that a future per-mode decision has a home rather than a new
-    // parameter bolted on later.
     _ = optimize;
 
     return .{
-        // `LazyPath.dirname` is not optional: it panics rather than returning
-        // null when a path has no dirname, and a generated output file always has
-        // one, so the panic is unreachable here and is not a check this function
-        // needs to spell.
         .directory = header.dirname(),
         .header = header,
     };
 }
-
-// ---------------------------------------------------------------------------
-// The three libraries
-// ---------------------------------------------------------------------------
 
 fn add_library(
     b: *std.Build,
@@ -710,14 +488,10 @@ fn add_library(
     name: []const u8,
     sources: []const []const u8,
     abi: ?std.SemanticVersion,
-    /// Archives this one depends on, in link order. Recorded as compile
-    /// dependencies through `Module.linkLibrary`, so a change to
-    /// `libmbedcrypto` re-links the two above it rather than serving a stale
-    /// `libmbedtls.a` from the cache.
+    /// Earlier archive dependencies, in link order.
     below: []const ?*std.Build.Step.Compile,
     public: bool,
-    /// The linkage this archive is delivered in, already checked against the
-    /// target by `deliveredLinkage`.
+    /// Requested archive linkage after target compatibility checks.
     requested: std.builtin.LinkMode,
 ) *std.Build.Step.Compile {
     const linkage = deliveredLinkage(target, requested);
@@ -728,10 +502,7 @@ fn add_library(
         }),
         .linkage = linkage,
         .version = if (linkage == .dynamic) abi else null,
-        // A module definition file is how a COFF export list is stated, and
-        // upstream's `mbedtls_*` / `psa_*` naming is the whole API. It is a
-        // pattern rather than a list of 1500 names: write the rules out here and
-        // a header that adds a symbol needs no change.
+        // Export upstream's public symbol prefixes in Windows DLLs.
         .win32_module_definition = if (linkage == .dynamic and platform.windows)
             b.addWriteFiles().add(b.fmt("{s}.def", .{name}),
                 \\EXPORTS
@@ -746,42 +517,31 @@ fn add_library(
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            // `link_libc` because the closure reaches <string.h>, <stdlib.h>,
-            // <time.h>, <stdio.h> and, on every unix-like target, <unistd.h>,
-            // <sys/socket.h>, <netdb.h> and <poll.h>.
+            // The source closure requires libc.
             .link_libc = true,
             .pic = if (linkage == .dynamic) true else null,
         }),
     });
     const m = lib.root_module;
 
-    // The generated configuration, for *this* target, first on the include path
-    // and named through upstream's own `MBEDTLS_CONFIG_FILE` hook. Both steps are
-    // needed and neither is enough alone: the macro names the header, and the
-    // directory is what lets a bare name be resolved. See the module doc for why
-    // the generated file is not called `mbedtls_config.h`.
+    // Resolve upstream's `MBEDTLS_CONFIG_FILE` against this target's generated config.
     m.addIncludePath(generated.directory);
     m.addCMacro("MBEDTLS_CONFIG_FILE", b.fmt("\"{s}\"", .{config_gen.output_basename}));
 
-    // For the sources' own quoted includes: every file in `library/` includes its
-    // neighbours by bare name, and `net_sockets.c:18` opens `"common.h"`.
+    // Add upstream source and public include directories.
     m.addIncludePath(b.path(library_dir));
-    // For the public headers, by the names the sources spell them with.
     m.addIncludePath(b.path(include_dir));
     for (thirdparty_includes) |dir| {
         m.addIncludePath(b.path(dir));
     }
 
-    // Per target, not one global list: FreeBSD needs one extra define that no
-    // other target wants. See `cFlags` and `freebsd_visibility_flag`.
+    // FreeBSD gets its target-specific visibility define.
     const flags = cFlags(platform);
     for (sources) |source| {
         m.addCSourceFile(.{ .file = b.path(source), .flags = flags });
     }
 
-    // The archives below, in upstream's order. `linkLibrary` records each as a
-    // compile dependency of this one, which is also what makes a static archive
-    // resolve against the other two.
+    // Link dependent archives in upstream order.
     for (below) |dependency| {
         if (dependency) |other| m.linkLibrary(other);
     }
@@ -789,18 +549,7 @@ fn add_library(
     if (platform.separate_m) m.linkSystemLibrary("m", .{});
     if (linkage == .dynamic and platform.separate_dl) m.linkSystemLibrary("dl", .{});
 
-    // Upstream's own answer, at `src/library/CMakeLists.txt:225-227`:
-    // `if(WIN32) set(libs ${libs} ws2_32 bcrypt)`. Both are import libraries,
-    // not archives this build produces: `net_sockets.c` calls the whole
-    // Winsock2 set (`socket`, `bind`, `listen`, `accept`, `connect`, `send`,
-    // `recv`, `select`, `setsockopt`, `getaddrinfo`, `WSAStartup`,
-    // `WSAGetLastError`) and `entropy_poll.c:98-146` calls
-    // `BCryptGenRandom`. Without them `lld-link` reports every one of them as
-    // `undefined symbol`, which is what the two Windows cells did.
-    //
-    // Recorded on the archive's module, as `separate_m` above is, so that every
-    // consumer of the archive inherits them rather than each executable having
-    // to remember.
+    // Upstream requires `ws2_32` and `bcrypt` imports on Windows (`src/library/CMakeLists.txt`).
     if (platform.windows) {
         m.linkSystemLibrary("ws2_32", .{});
         m.linkSystemLibrary("bcrypt", .{});
@@ -808,11 +557,7 @@ fn add_library(
 
     if (linkage == .dynamic and target.result.ofmt == .elf) setVersionScript(b, lib, name);
 
-    // The generated header is an *input* to this compile, so the step that
-    // writes it has to be a dependency of it. `addIncludePath` contributes only
-    // a path to the command line; without this edge the archive could be served
-    // from the build cache from a run in which a different target had written
-    // that directory.
+    // Ensure this compile waits for its generated configuration header.
     generated.header.addStepDependencies(&lib.step);
 
     return lib;
@@ -834,21 +579,13 @@ fn setVersionScript(b: *std.Build, lib: *std.Build.Step.Compile, name: []const u
     , .{name})));
 }
 
-// ---------------------------------------------------------------------------
-// The graph for one target
-// ---------------------------------------------------------------------------
-
 const TargetGraph = struct {
     crypto: *std.Build.Step.Compile,
     x509: *std.Build.Step.Compile,
     tls: *std.Build.Step.Compile,
-    /// The facade module for `name`, carrying the translation and the archives.
+    /// Public facade module.
     module: *std.Build.Module,
-    /// The configuration header this target's compile and translation both read.
-    /// `add_install` needs it, and the install step lives outside `addGraph`, so
-    /// it travels back out rather than being regenerated: a second generator run
-    /// would write a second cache directory, and the installed header would not
-    /// be the one this graph compiled against.
+    /// Target config shared by compile, translation and install.
     generated: GeneratedConfig,
 };
 
@@ -903,11 +640,7 @@ fn addGraph(
         linkage,
     );
 
-    // The translation. One step, rooted at `zig/translate.h`, which reaches the
-    // eighty public headers; the same include path and the same
-    // `MBEDTLS_CONFIG_FILE` macro as the libraries above, so the translation
-    // describes the headers this build compiled against rather than another
-    // configuration's.
+    // Translate the same target-configured public headers used by C compilation.
     const translate = b.addTranslateC(.{
         .root_source_file = b.path(translate_header),
         .target = target,
@@ -921,14 +654,7 @@ fn addGraph(
 
     const translated = translate.createModule();
 
-    // The facade module. One module, registered by name under `tls_name` when
-    // this graph is the public one: `zig/root.zig` is a single source over a
-    // single translation of all eighty public headers, so a second published
-    // name would be the same module twice, not a layer. The private graphs a
-    // `check` cell builds use `createModule`, because a second `addModule`
-    // under a name the map already holds trips `HashMap.put`'s duplicate-key
-    // assertion, and with assertions off it would overwrite the entry and leave
-    // only the last cell's module reachable.
+    // Register one public module; check graphs use private modules to avoid duplicate names.
     const module = if (public)
         b.addModule(tls_name, .{
             .root_source_file = b.path(facade_source),
@@ -944,13 +670,8 @@ fn addGraph(
             .link_libc = true,
         });
 
-    // The runtime route. Under `-Druntime=true` the facade's `c` import is the
-    // generated dispatch and *nothing* links the archives, because a linker that
-    // could resolve those symbols would resolve them statically and the runtime
-    // route would quietly become a linked one. `rt` is imported only in the
-    // linked configuration, for the two public types; a second core module would
-    // be a second nominal `LoadSource`, and `load` would hand the facade's type to
-    // something expecting the dispatch's.
+    // Runtime mode imports generated dispatch and does not link archives.
+    // Linked mode imports translated C and core types, then links all three archives.
     if (runtime_loaded) {
         module.addImport("c", graph_runtime.createModule(b, translate, target, optimize));
     } else {
@@ -960,12 +681,10 @@ fn addGraph(
         module.linkLibrary(x509);
         module.linkLibrary(tls);
     }
-    // So that a dependent compiling a C file of its own finds the same headers.
+    // Expose public headers to dependents' C compilation.
     module.addIncludePath(b.path(include_dir));
 
-    // The three archives are built and installed whatever the dispatch is:
-    // delivery and dispatch are different questions, and `-Druntime=true` does
-    // not mean "do not build the library".
+    // Build and install archives in both linked and runtime-dispatch modes.
     for ([_]*std.Build.Step.Compile{ crypto, x509, tls }) |lib| {
         generated.header.addStepDependencies(&lib.step);
     }
@@ -978,10 +697,6 @@ fn addGraph(
         .generated = generated,
     };
 }
-
-// ---------------------------------------------------------------------------
-// Delivery
-// ---------------------------------------------------------------------------
 
 fn targetHasDynamicLinker(target: std.Build.ResolvedTarget) bool {
     return std.Target.DynamicLinker.kind(target.result.os.tag) != .none;
@@ -1002,10 +717,6 @@ fn deliveredLinkage(
     return requested;
 }
 
-// ---------------------------------------------------------------------------
-// Install
-// ---------------------------------------------------------------------------
-
 fn add_install(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -1019,18 +730,13 @@ fn add_install(
     b.installArtifact(graph.tls);
 
     for (public_headers) |header| {
-        // `mbedtls/foo.h` and `psa/foo.h` install into their own subdirectory,
-        // because the headers include each other by those exact names and a flat
-        // layout would make `#include "mbedtls/build_info.h"` unresolvable for a
-        // consumer.
+        // Preserve `mbedtls/` and `psa/` include paths in the install tree.
         const sub = if (std.mem.indexOf(u8, header, "/psa/") != null)
             "psa"
         else
             "mbedtls";
         const base = std.fs.path.basename(header);
-        // `addInstallFileWithDir` *creates* a step and nothing more. Dropping the
-        // return value builds nothing and installs nothing, and the omission is
-        // silent: the step exists, it is simply never in the graph.
+        // Attach each generated install step to the default install step.
         const installed = b.addInstallFileWithDir(
             b.path(header),
             .header,
@@ -1039,17 +745,8 @@ fn add_install(
         b.getInstallStep().dependOn(&installed.step);
     }
 
-    // The generated configuration, installed under the name the headers reach it
-    // by, so that a dependent's own `mbedtls/build_info.h` finds the
-    // configuration this library was actually built with.
-    //
-    // This is the *only* generated file that is installed, and the reason is
-    // narrow: upstream's own install rule puts `mbedtls_config.h` in exactly this
-    // place, so a consumer that includes any Mbed TLS header needs *some* file
-    // there, and the one that describes a different configuration than the linked
-    // library is the failure mode this workspace rules out by name. The
-    // build-internal name `mbedtls_target_config.h` is not installed under that
-    // name, so nothing in the tree can shadow it.
+    // Install upstream's generated config as `mbedtls_config.h` for consumers.
+    // This keeps the installed headers aligned with the linked archives.
     const installed_config = b.addInstallFileWithDir(
         generated.header,
         .header,
@@ -1076,9 +773,7 @@ fn add_pkg_config(
     linkage: std.builtin.LinkMode,
 ) void {
     const files = b.addWriteFiles();
-    // `b.fmt` is inside `add`, so the file is both formatted and written at build
-    // time. `addInstallFileWithDir` *creates* a step and nothing more: dropping
-    // the return value builds nothing and installs nothing, silently.
+    // Attach generated pkg-config metadata to the install graph.
     const requires = b.fmt("{s}", .{
         if (linkage == .dynamic) "libmbedtls.so.21 libmbedx509.so.7 libmbedcrypto.so.16 " else "",
     });
@@ -1106,10 +801,6 @@ fn add_pkg_config(
     _ = target;
 }
 
-// ---------------------------------------------------------------------------
-// The check step
-// ---------------------------------------------------------------------------
-
 fn add_target_check(
     b: *std.Build,
     step: *std.Build.Step,
@@ -1119,8 +810,7 @@ fn add_target_check(
     runtime_loaded: bool,
 ) void {
     const cross_target = b.resolveTargetQuery(query);
-    // The refusal comes *before* any delivery decision, so a target this build
-    // will not configure never reaches the point where a linkage is chosen.
+    // Refuse unsupported targets before choosing the library linkage.
     if (refusalFor(cross_target.result.os.tag) != null) {
         refuseTarget(b, cross_target.result.os.tag);
     }
@@ -1128,10 +818,7 @@ fn add_target_check(
     const triple = cross_target.result.zigTriple(b.allocator) catch @panic("unspellable target");
     const cross = addGraph(b, cross_target, optimize, linkage, runtime_loaded, false);
 
-    // Zig analyses a function body only when something calls it, so the check has
-    // to *call* the facade rather than merely name it. The test root and the
-    // example root both do, which is what makes this a compile exercise instead
-    // of a translation.
+    // Call the facade so Zig analyzes its bodies for each check target.
     const test_mod = b.createModule(.{
         .root_source_file = b.path(test_source),
         .target = cross_target,
@@ -1139,8 +826,7 @@ fn add_target_check(
         .link_libc = true,
     });
     test_mod.addImport(tls_name, cross.module);
-    // The fixtures are embedded with `@embedFile` from the test root, so the
-    // test module needs the package root on its path for `fixtures/`.
+    // The test root embeds fixtures relative to the package root.
     test_mod.addAnonymousImport("mbed_tls_root", .{
         .root_source_file = b.path("tests.zig"),
     });
@@ -1161,14 +847,8 @@ fn add_target_check(
         .root_module = example_mod,
     }).step);
 
-    // Nothing in `check` runs. A cell that fails is a fact to diagnose, not a
-    // reason to drop the cell, sample the tests, or remap Debug to an optimized
-    // mode to make it pass.
+    // Checks compile targets; they do not run tests or examples.
 }
-
-// ---------------------------------------------------------------------------
-// The consumer
-// ---------------------------------------------------------------------------
 
 fn runConsumer(
     b: *std.Build,
@@ -1177,9 +857,7 @@ fn runConsumer(
     linkage: std.builtin.LinkMode,
     runtime_loaded: bool,
 ) *std.Build.Step.Run {
-    // A nested build rather than a manifest dependency: a manifest dependency from
-    // this package to `consumer/`, which depends back on this package, closes a
-    // cycle.
+    // Use a nested build to avoid a cyclic manifest dependency.
     const run = b.addSystemCommand(&.{ b.graph.zig_exe, "build" });
     run.setName("consumer package");
     run.setCwd(b.path("consumer"));
@@ -1187,8 +865,7 @@ fn runConsumer(
 
     const triple = target.result.zigTriple(b.allocator) catch @panic("unspellable target");
     run.addArg(b.fmt("-Dtarget={s}", .{triple}));
-    // The CPU model is serialised separately because the triple does not carry
-    // it (`lib/std/Target/Query.zig`).
+    // The target triple does not encode the CPU model.
     const cpu = target.query.serializeCpuAlloc(b.allocator) catch
         @panic("the CPU model could not be serialized");
     run.addArg(b.fmt("-Dcpu={s}", .{cpu}));
@@ -1227,17 +904,10 @@ fn runConsumer(
 }
 
 fn hostCanExecute(b: *std.Build, target: std.Build.ResolvedTarget) bool {
-    // The question is whether the selected target is the host, not whether an
-    // executor for it exists. Whether a *foreign* target runs is the cross-test
-    // harness's decision; this build answers "run" for the host and "install"
-    // for everything else, which is the conservative half of that answer.
+    // Run only native targets here; cross-test handles foreign executors.
     _ = b;
     return target.query.isNative();
 }
-
-// ---------------------------------------------------------------------------
-// build
-// ---------------------------------------------------------------------------
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -1273,7 +943,7 @@ pub fn build(b: *std.Build) void {
             "load() before any native call.",
     ) orelse false;
 
-    // Configure-time validation, before any graph is built.
+    // Validate configuration before building the graph.
     if (manifest_version.order(upstream_version) != .eq) {
         @panic("build.zig.zon .version no longer matches the version read out " ++
             "of src/include/mbedtls/build_info.h; see UPSTREAM.md");
@@ -1295,8 +965,7 @@ pub fn build(b: *std.Build) void {
     const graph = addGraph(b, target, optimize, delivered, runtime_loaded, true);
     add_install(b, target, platform, graph.generated, graph, delivered);
 
-    // Configure-time reporting, so `zig build` says what it is about to do
-    // without anyone having to read the graph.
+    // Report the resolved build configuration.
     std.debug.print(
         "mbed-tls {f} for {s}: {d} + {d} + {d} + {d} translation units, " ++
             "{s} linkage, {s} platform\n",
@@ -1359,9 +1028,7 @@ pub fn build(b: *std.Build) void {
         .name = "mbed-tls-smoke",
         .root_module = example_mod,
     });
-    // Built, not installed: the example exists to be run by `smoke` and compiled
-    // by `check`, and installing a demo binary into a consumer's prefix would be
-    // a surprise.
+    // Build but do not install the example; run it via `smoke`.
     b.getInstallStep().dependOn(&example.step);
 
     const run_example = b.addRunArtifact(example);
@@ -1381,9 +1048,6 @@ pub fn build(b: *std.Build) void {
     if (!target.query.isNative()) {
         add_target_check(b, check_step, target.query, optimize, delivered, runtime_loaded);
     } else {
-        // `[0..]`, not `.*`: `.*` is for dereferencing a single optional or
-        // error-union payload, so the pointer-to-array has to become a slice
-        // before it can be iterated.
         for (check_targets[0..]) |query| {
             add_target_check(b, check_step, query, optimize, delivered, runtime_loaded);
         }

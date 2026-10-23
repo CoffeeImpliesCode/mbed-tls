@@ -3,85 +3,35 @@
 // per-file inventory of the upstream material this package ships.
 //
 .{
-    // The package id, and the name a dependent writes in its dependency map.
-    // The directory is `mbed-tls`; a Zig package name is an identifier, so the
-    // hyphen becomes an underscore here. The map key is still `"mbed-tls"`,
-    // which is what `b.dependency("mbed-tls", ...)` takes.
+    // Package id; dependents use the key "mbed-tls".
     .name = .mbed_tls,
-    // Upstream's own version, read out of src/include/mbedtls/build_info.h:27-29
-    // (MBEDTLS_VERSION_MAJOR 3, MINOR 6, PATCH 7) and :36-38
-    // (MBEDTLS_VERSION_NUMBER 0x03060700 and MBEDTLS_VERSION_STRING "3.6.7").
-    // This is the version of the C library this package builds, not a version of
-    // the Zig wrapper, and `build.zig` refuses to configure if it and that
-    // header ever disagree.
-    //
-    // 3.6 is the long-term-support branch upstream states it will carry with
-    // bug and security fixes "until at least March 2027"; see UPSTREAM.md.
+    // Upstream library version, checked against build_info.h by build.zig.
     .version = "3.6.7",
     .fingerprint = 0xc6bca3feca8ae44a,
-    // `.fingerprint` is deliberately absent.
-    //
-    // A package fingerprint is an identifier the Zig toolchain *derives* for a
-    // named package. Deriving one here would mean running the compiler, and no
-    // gate has been run for this package yet, so any value written now would be
-    // an invented identifier. The first observed `zig build` reports the value
-    // the toolchain computes for `.mbed_tls`; the driver records it in
-    // FORK-NOTES.md and adds it here in the same change. Nothing in this
-    // package's source, build graph or tests reads it.
     .minimum_zig_version = "0.16.0",
-    // Nothing is fetched. The C library is this repository's own vendored
-    // source under `src/`, the facade and its examples import only what is
-    // compiled here, and the consumer package resolves this package by
-    // relative path rather than from a registry.
+    // No external Zig dependencies.
     .dependencies = .{},
     .paths = .{
-        // The build graph, this manifest, and the matrix driver's settings
-        // profile. The profile is settings only - the standard `zig build test`
-        // step over the full published 53-platform matrix, no target subset and
-        // no host path. Nothing in build.zig reads it.
+        // Build graph and cross-test settings.
         "build.zig",
         "build.zig.zon",
         "cross-test.profile.sh",
-        // `zig/root.zig` is the typed facade, `zig/translate.h` the one
-        // aggregate header translate-c reads, and `zig/config_gen.zig` the
-        // host-target generator that writes the per-target configuration
-        // header from this package's own copy of upstream's `mbedtls_config.h`.
-        // All three travel: the facade is the published module and the
-        // generator is part of the build graph a dependent runs.
+        // Facade, translation header and target-config generator.
         "zig",
-        // Upstream's own tree, exactly as the release tarball unpacks it:
-        // `src/include` (the public headers), `src/library` (every translation
-        // unit of libmbedcrypto, libmbedx509 and libmbedtls, plus their private
-        // headers), `src/3rdparty` (Everest and p256-m, which the library
-        // compiles), `src/configs` (the configuration fragments upstream ships),
-        // `src/LICENSE`, `src/ChangeLog`, `src/SECURITY.md` and
-        // `src/framework-LICENSE`. It travels as a directory rather than a
-        // hand-picked file list so the tree a dependent receives is upstream's
-        // tree, byte for byte; per-file digests are in UPSTREAM.sha256.
+        // Vendored upstream source tree.
         "src",
-        // The handshake fixture: upstream's own `test-ca.crt`, `server2.crt`
-        // and `server2.key` from the framework data files the release tarball
-        // ships. Recorded with their provenance in UPSTREAM.md and digested in
-        // UPSTREAM.sha256. They are inputs to this package's tests, so they
-        // must travel with it.
+        // Handshake test fixtures.
         "fixtures",
-        // The behavioural test root and the smoke example. `check` compiles
-        // both for every cross target, so they are part of the gate rather than
-        // scaffolding.
+        // Test and smoke roots.
         "tests.zig",
         "smoke.zig",
-        // The consumer package, as three explicit files: it is a separate
-        // package with its own manifest, and naming its directory would also
-        // pick up its own build cache and output tree.
+        // Separate consumer package.
         "consumer/build.zig",
         "consumer/build.zig.zon",
         "consumer/src/main.zig",
-        // Upstream's README under this package's naming, so the exact upstream
-        // text stays readable next to this fork's own README. `tools/
-        // check-provenance.sh` fails if it stops being the imported bytes.
+        // Upstream README under its original text.
         "README.upstream.md",
-        // The provenance records: the pin, the digests, the licence inventory,
-        // this fork's own grant, the changelog and the working notes.
+        // Fork provenance and licence records.
         "UPSTREAM.md",
         "UPSTREAM.sha256",
         "README.md",
@@ -90,25 +40,16 @@
         "CHANGELOG.md",
         "FORK-NOTES.md",
         "FORK-LICENSE.md",
-        // `tools/check-provenance.sh`, the source-integrity gate.
+        // Integrity-check tools.
         "tools",
-        // The runtime-loading dispatch. It travels because a dependent built
-        // with `-Druntime=true` gets it through the published module rather
-        // than from its own tree.
+        // Runtime-loading dispatch sources.
         "runtime",
-        // The Nix and devenv entry points, and the direnv one-liner that hands
-        // over to devenv.
+        // Nix, devenv and direnv entry points.
         "package.nix",
         "flake.nix",
         "devenv.nix",
         "devenv.yaml",
         ".envrc",
-        // `flake.lock` and `devenv.lock` are deliberately NOT named here. Both
-        // are driver-owned; naming a path that is not there would make
-        // `zig fetch` hash a missing entry.
-        //
-        // No build output is named either: `.zig-cache/`, `zig-out/`,
-        // `zig-pkg/` and `consumer/.zig-cache/` are ignored by `.gitignore`, and
-        // an ignored path can never become part of the package.
+        // Driver-owned locks and build outputs are excluded.
     },
 }

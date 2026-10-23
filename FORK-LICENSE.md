@@ -1,50 +1,22 @@
-# FORK-LICENSE.md — the grant for this fork's own files
+# Fork license
 
-[`NOTICE.md`](NOTICE.md) is the inventory: which files are upstream's, which are
-this fork's, and which term covers each. This file is the grant itself, for the
-second group only.
+This file grants fork-authored additions only. `NOTICE.md` lists the licence for each path group.
 
-## 1. The native source is not covered by anything below
+## Upstream material
 
-The 335 files under `src/` and `fixtures/`, plus the preserved
-`README.upstream.md`, are Mbed TLS's, whole from `mbedtls-3.6.7.tar.bz2` and
-never edited. They are dual-licensed **Apache-2.0 OR GPL-2.0-or-later**,
-Copyright The Mbed TLS Contributors, under the grant stated at `src/LICENSE:1-6`
-and in every source file's `SPDX-License-Identifier` line. Nothing in this file
-re-grants, narrows, widens or conditions that term, and nothing here asserts
-that Arm, the Trusted Firmware group, The Mbed TLS Contributors or any named
-author wrote, reviewed or endorses a line of fork code.
+The 335 files under `src/` and `fixtures/`, plus `README.upstream.md`, are unmodified Mbed TLS 3.6.7 files from `mbedtls-3.6.7.tar.bz2`. They are dual-licensed **Apache-2.0 OR GPL-2.0-or-later**, Copyright The Mbed TLS Contributors; see `src/LICENSE:1-6` and each file's SPDX identifier. This grant does not alter that upstream term or imply upstream authorship or endorsement of fork code.
 
-Four files in that native set are not under the dual term, and section 3 of this
-file does not reach them either. They are bundled third-party or separately
-licensed material with their own terms, recorded per file in `NOTICE.md`,
-"Per-file exceptions": the whole `src/3rdparty/everest/` subtree
-(Apache-2.0 only, INRIA and Microsoft Corporation),
-`src/configs/ext/crypto_config_profile_medium.h` (BSD-3-Clause, Arm Limited) and
-`src/configs/ext/tfm_mbedcrypto_config_profile_medium.h` (Apache-2.0, ARM
-Limited).
+The following upstream files have separate terms and are not covered by this grant: `src/3rdparty/everest/` (Apache-2.0 only; INRIA and Microsoft Corporation), `src/configs/ext/crypto_config_profile_medium.h` (BSD-3-Clause; Arm Limited), and `src/configs/ext/tfm_mbedcrypto_config_profile_medium.h` (Apache-2.0; ARM Limited). `NOTICE.md` records these exceptions.
 
-## 2. The fork-authored material
+## Fork-authored material
 
-Everything else in this repository — the Zig build, the typed module and its
-tests, the example, the consumer package, the runtime-loading route, the
-per-target configuration generator, the packaging, the integrity script and the
-documentation — was written for this fork. The runtime-loading route is the six
-files under `runtime/`: the reusable loader, this SDK's descriptor, the build
-half that wires them together, the build-time generator, and the two C files
-that supply the synchronization the descriptor binds. All six are fork work
-under this grant; none of them is upstream material and none is derived from a
-third-party source.
+All other repository files are fork-authored. This grant covers the Zig build, typed module and tests, example, consumer package, runtime-loading route, configuration generator, packaging, integrity script, and documentation. The six files under `runtime/`—loader, SDK descriptor, build graph, generator, and two synchronization C files—are fork-authored, not upstream material, and are not derived from a third-party source.
 
 ### Grant
 
-**Those files are released under the Apache License, Version 2.0, or — at the
-recipient's option — the GNU General Public License, version 2 or (at your
-option) any later version**, matching the primary upstream term of this
-project. The two texts are reproduced in full, verbatim, immediately below. The
-first is `src/LICENSE:9-209` of this repository, byte for byte; the second is
-`src/LICENSE:215-553`, byte for byte. Neither is paraphrased, shortened or
-summarised anywhere in this file.
+Fork-authored files are released under the **Apache License, Version 2.0, or, at the recipient's option, the GNU General Public License, version 2 or any later version**. The owner authorized this per-project grant to match the primary upstream term where appropriate. It is the owner's grant, not an upstream grant. The copyright in fork-authored files is held collectively by their contributors; no individual copyright holder is named. The Apache appendix's copyright placeholder remains unchanged.
+
+The following licence texts are reproduced in full, verbatim, from `src/LICENSE`: Apache at lines 9–209 and GPL at lines 215–553.
 
 #### Apache License, Version 2.0
 
@@ -397,17 +369,17 @@ Sections 1 and 2 above provided that you also do one of the following:
     1 and 2 above on a medium customarily used for software interchange; or,
 
     b) Accompany it with a written offer, valid for at least three
-    years, to give any third party, for a charge no more than your
-    cost of physically performing source distribution, a complete
-    machine-readable copy of the corresponding source code, to be
-    distributed under the terms of Sections 1 and 2 above on a medium
-    customarily used for software interchange; or,
+years, to give any third party, for a charge no more than your
+cost of physically performing source distribution, a complete
+machine-readable copy of the corresponding source code, to be
+distributed under the terms of Sections 1 and 2 above on a medium
+customarily used for software interchange; or,
 
     c) Accompany it with the information you received as to the offer
-    to distribute corresponding source code.  (This alternative is
-    allowed only for noncommercial distribution and only if you
-    received the program in object code or executable form with such
-    an offer, in accord with Subsection b above.)
+to distribute corresponding source code.  (This alternative is
+allowed only for noncommercial distribution and only if you
+received the program in object code or executable form with such
+an offer, in accord with Subsection b above.)
 
 The source code for a work means the preferred form of the work for
 making modifications to it.  For an executable work, complete source
@@ -596,107 +568,18 @@ library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.
 ```
 
-The obligations that the upstream term imposes on a distributor — keep the
-copyright notice and the licence text with copies, mark modified files, and
-carry the Apache `NOTICE` mechanism where it applies — apply to this text too,
-for the fork's files.
+The upstream Apache and GPL terms continue to govern upstream files; redistributors must include the applicable notices and full licence texts. See `NOTICE.md`.
 
-### Authority for that grant
+## SPDX identifier
 
-The owner of this repository authorized per-project licensing for fork-authored
-additions as part of the SDK contract migration, with the term chosen per
-project to match that project's primary upstream terms where that is
-appropriate. **AGENTS.md §8** records the authorization: *"The owner has now
-authorized per-project licences for those additions, matching the project's
-primary upstream terms where appropriate. Record that authorization and the
-actual grant in each fork's `FORK-LICENSE.md` and `NOTICE.md`."* Mbed TLS's
-primary upstream term is `Apache-2.0 OR GPL-2.0-or-later`, so that dual term is
-the choice here.
+`Apache-2.0 OR GPL-2.0-or-later`
 
-The term above is the **owner's**, reached by that authorization. It is not an
-upstream grant: upstream's terms do not themselves extend to work upstream did
-not write, and nothing in this section should be read as Mbed TLS licensing
-this fork's additions. Nor does adopting this term make the fork's files
-upstream's, or make the upstream authors responsible for them.
+This is the grant for fork-authored files. The same identifier appears in Mbed TLS source files, in four tagged p256-m files, and on 14 fork-authored files. `runtime/loader.zig` uses `MIT`; `NOTICE.md` records the exception.
 
-The owner is not named and no individual copyright holder is invented. The
-copyright in the fork's files is held collectively by the contributors to this
-fork, and it is stated here rather than inside either licence text: the Apache
-APPENDIX above is upstream's own template, and its `Copyright [yyyy] [name of
-copyright owner]` placeholder is left exactly as it stands, because filling a
-placeholder inside a reproduced licence would alter the licence. Keep this
-paragraph with copies of the fork's files, and the Apache `NOTICE` obligations
-for the fork's own material are met by [`NOTICE.md`](NOTICE.md).
+## Upstream material in fork directories
 
-### SPDX identifier
+- `src/3rdparty/everest/`: 26 Project Everest files, Apache-2.0 only; Copyright INRIA and Microsoft Corporation. Not re-granted here.
+- `src/3rdparty/p256-m/`: 9 files authored by Manuel Pégourié-Gonnard, Apache-2.0 upstream; included under Mbed TLS's dual term with the author's permission (`src/3rdparty/p256-m/README.md:1`, `README.upstream.md:323`).
+- `fixtures/`: 3 upstream test certificate, key and CA files under Mbed TLS's dual term.
 
-```
-Apache-2.0 OR GPL-2.0-or-later
-```
-
-The registered dual identifier, with no `LicenseRef-` wrapper, and it is the
-same string that appears in the SPDX line of every vendored Mbed TLS source
-file, in `p256-m`'s four tagged files, and on 14 of this fork's own files.
-(`runtime/loader.zig` is the one that says `MIT` instead; `NOTICE.md` records
-that as the deviation it is.) A `LicenseRef-` would be wrong here for the same
-reason it would be wrong for a bare MIT tree: the grant adds no condition of
-its own to either licence. It is this project's own primary upstream term,
-chosen whole.
-
-### What this does not do
-
-* It does not re-license, sublicense or add a condition to any Mbed TLS file,
-  to the Everest subtree, to `crypto_config_profile_medium.h`, to
-  `tfm_mbedcrypto_config_profile_medium.h`, or to any other file named in
-  `NOTICE.md`. Those terms are upstream's, or the original author's, and stand
-  on their own.
-* It does not assert that Arm, the Trusted Firmware group, The Mbed TLS
-  Contributors, INRIA, Microsoft Corporation, Manuel Pégourié-Gonnard or Arm
-  Limited authored, reviewed, endorsed or is affiliated with the fork's files.
-* It does not discharge the upstream obligations. A consumer who ships an Mbed
-  TLS 3.6.7 binary, static or shared library, header or certificate fixture
-  still owes The Mbed TLS Contributors' notice and the full licence text; see
-  `NOTICE.md` for where they travel.
-* It does not claim the dual term is the only one the owner could have chosen
-  for independently authored work. It is the term chosen, and it happens to
-  match upstream's.
-* It does not extend to a re-sync of the vendored tree. Any change under
-  `src/` is a change to upstream material and needs its own record; see
-  `UPSTREAM.md`, "Import mechanism".
-
-## 3. Material carried but not authored here
-
-There is some, and it is upstream-bundled rather than fetched. This repository
-vendors no dependency from outside the release archive: no downloaded header,
-no cloned submodule, no generated table.
-
-* **`src/3rdparty/everest/`**, 26 files, from Project Everest. Apache-2.0
-  only, Copyright (c) INRIA and Microsoft Corporation; upstream's own statement
-  is at `README.upstream.md:323`. Not dual-licensed and not re-granted here.
-* **`src/3rdparty/p256-m/`**, 9 files, from the p256-m repository, authored by
-  Manuel Pégourié-Gonnard. Apache-2.0 upstream; distributed inside Mbed TLS
-  under the dual term "with permission from the author"
-  (`src/3rdparty/p256-m/README.md:1`, `README.upstream.md:323`).
-* **`fixtures/`**, 3 files of upstream's own published test certificate, key and
-  CA, carried under the upstream dual term with no notice of their own.
-
-All 336 of those entries are digested in [`UPSTREAM.sha256`](UPSTREAM.sha256).
-
-The one file this build generates is not carried material either, and the
-distinction is worth keeping exact rather than dropping a category to make the
-sentence short. `zig/config_gen.zig` writes a configuration header for the
-target being built, into the build cache rather than into this tree, and that
-header is derived from this package's own copy of upstream's
-`src/include/mbedtls/mbedtls_config.h` — Mbed TLS material, under Mbed TLS's
-term. Nothing is fetched to make it, no third-party code is in it, and it is
-not installed as a source file: the installed header is the build's rendering
-of an upstream input, and the input travels under section 1's term.
-
-## 4. Why a separate file at all
-
-`NOTICE.md` names which fork-authored files carry an `SPDX-License-Identifier`
-line, which carry a different one, and which carry the same grant in prose
-without a tag. This file exists so that the authority, the grant text — both
-licences, in full, rather than a pointer — and the limits of that grant live in
-one place, next to the inventory rather than scattered across the files
-themselves.
+The generated configuration header is build output, not carried source. `zig/config_gen.zig` derives it from upstream `src/include/mbedtls/mbedtls_config.h`; it inherits that input's Mbed TLS term. `UPSTREAM.sha256` records the imported entries.

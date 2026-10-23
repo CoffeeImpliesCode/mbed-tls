@@ -1,37 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
 // See FORK-LICENSE.md for what that identifier covers.
-//
 
-//! The example program, and what it is for.
-//!
-//! `zig build smoke` runs this; `zig build check` compiles it for every cross
-//! target without running it. It exists to answer one question on a machine
-//! where nobody has read the source: *does this build actually do TLS?*
-//!
-//! ## What makes it a check and not a demonstration
-//!
-//! Every expected value below is a **literal** - a published standard vector or a
-//! field read out of upstream's own published test certificate. Nothing is
-//! compared against a value this program computed for the purpose. A program
-//! that asked Mbed TLS whether it agreed with itself would print whatever the
-//! library said and pass on a build with a broken cipher; this one cannot,
-//! because the answers come from NIST, from the GCM specification, from RFC 8439
-//! and from OpenSSL's reading of a certificate file.
-//!
-//! ## No `@cImport`
-//!
-//! There is no `@cImport`, `@cInclude` or `@cDefine` in this file. C is reached
-//! only through the facade, which is what makes this program a check of the
-//! *published module* rather than of a private translation a dependent could
-//! not use.
-//!
-//! ## The version line
-//!
-//! The first two lines name the configuration (`linked` or `loaded`) and the
-//! version the *library* reports. The version is printed and never compared: a
-//! version string is provenance, not behaviour. The gate for the pin is
-//! `tools/check-provenance.sh`, which reads `UPSTREAM.md` and `UPSTREAM.sha256`
-//! and never looks at this program.
+//! `zig build smoke` runs this example; `zig build check` cross-compiles it.
+//! Checks published crypto vectors, fixture certificates and loopback TLS where sockets exist.
+//! Uses only the facade; no `@cImport`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -41,34 +13,19 @@ const test_ca_pem = @embedFile("fixtures/test-ca.crt");
 const server_cert_pem = @embedFile("fixtures/server2.crt");
 const server_key_pem = @embedFile("fixtures/server2.key");
 
-/// The verification profile this vendored chain needs.
-///
-/// Both fixture certificates are `sha1WithRSAEncryption`, and Mbed TLS 3.6.7's
-/// default profile allows SHA-256 and above
-/// (`src/library/x509_crt.c:89-97`), so the library refuses this chain by
-/// default. `certificateChecks` prints that refusal and its exact reason
-/// before it uses this profile, so the line below never hides the default.
-///
-/// A function and not a `const`: upstream's profiles are link-time `const`
-/// globals (`src/include/mbedtls/x509_crt.h:324`), which cannot be read while
-/// a container-level initialiser is evaluated, and the caller has to keep the
-/// value alive anyway because `mbedtls_ssl_conf_cert_profile` stores the
-/// pointer (`src/library/ssl_tls.c:1832-1835`).
+/// Fixture profile: add SHA-1 to upstream default, which rejects this chain.
+/// Keep it alive while a TLS config borrows it.
 fn legacySha1() mbedtls.CertificateProfile {
     return mbedtls.CertificateProfile.default().allowingMd(.sha1);
 }
 
-/// `MBEDTLS_X509_BADCERT_BAD_MD` (`src/include/mbedtls/x509.h:105`): the
-/// certificate is signed with a hash the profile does not accept.
+/// `MBEDTLS_X509_BADCERT_BAD_MD` flag for a disallowed certificate hash.
 const badcert_bad_md: u32 = 0x4000;
 
-/// What a mismatch costs: a named error from `main`, which is Zig's own non-zero
-/// exit. There is no `exit()` anywhere in this file.
+/// Error returned when a check fails.
 const CheckFailed = error{CheckFailed};
 
-/// What a check can fail with: the mismatch it exists to report, and the
-/// writer's own failure while it is reporting it. A helper that prints the
-/// answer it then compares cannot claim to fail only on the mismatch.
+/// Check errors combine mismatches with writer failures.
 const CheckError = CheckFailed || std.Io.Writer.Error;
 
 /// FIPS 180-4 Appendix B, `SHA-256("abc")`.
@@ -77,38 +34,28 @@ const sha256_abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f200
 /// RFC 4231 §4.2 test case 1.
 const hmac_tag = "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7";
 
-/// NIST SP 800-38A §F.2.1, CBC-AES128.Encrypt, first block. Also measured
-/// independently with OpenSSL 3.5.0.
+/// NIST SP 800-38A first-block AES-128-CBC ciphertext.
 const cbc_ciphertext = "7649abac8119b246cee98e9b12e9197d";
 
-/// The GCM specification's Test Case 2 tag, for that case's published 64-byte
-/// plaintext. Also measured independently with Python's `cryptography`.
+/// GCM specification Test Case 2 tag.
 const gcm_tag = "59e5dfc37cb87a2afc73c4d0d58d23a8";
 
-/// RFC 8439 §2.8.2 tag, for that section's published plaintext. Also measured
-/// independently with Python's `cryptography`.
+/// RFC 8439 §2.8.2 tag.
 const chacha_tag = "1ae10b594f09e26a7e902ecbd0600691";
 
-/// RFC 8439 §2.8.2's plaintext: the AEAD check below is that section's example,
-/// so it encrypts that section's message and nothing of this program's own.
+/// RFC 8439 §2.8.2 plaintext used by the AEAD vector.
 const rfc8439_plaintext = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
 
-/// The test request and answer, so a wrong answer cannot be both ends agreeing
-/// about a byte that never travelled.
+/// Request sent by the client and expected from the server.
 const request = "ping";
 const response = "pong-from-server";
 
-/// A fixed high port. `Socket.bindAll` takes a port and nothing else, so nothing
-/// in the library chooses or reports one; a collision is `error.System` and a
-/// non-zero exit, with no retry, so "which port did this run use" stays
-/// answerable from the source.
+/// Fixed high port; `Socket.bindAll` listens on every interface.
+/// Conflicts fail; the facade cannot bind loopback-only.
 const port = "39501";
 
-/// Whether this target has the BSD-socket transport `Socket` needs.
-///
-/// The same condition `zig/config_gen.zig` decides `MBEDTLS_NET_C` from, read
-/// out of the resolved target. It is not a capability probe: nothing is called
-/// to find out.
+/// Whether the resolved target supports the socket transport.
+/// Mirrors the `MBEDTLS_NET_C` decision in `config_gen.zig`.
 const has_socket_transport = switch (builtin.os.tag) {
     .windows => true,
     .linux, .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .openbsd,
@@ -125,8 +72,7 @@ pub fn main(init: std.process.Init) !void {
     const w = &stdout.interface;
 
     try w.print("mbed-tls smoke\n", .{});
-    // The configuration first, then the version the library reports. Both are
-    // printed rather than compared: they are provenance.
+    // Print the configuration and library version; neither is compared.
     var version: [32]u8 = undefined;
     const reported = mbedtls.versionString(&version) catch "3.6.7 (buffer too small)";
     try w.print("{s: <44}{s}\n", .{ "configuration", if (mbedtls.runtime_loaded) "loaded" else "linked" });
@@ -134,8 +80,7 @@ pub fn main(init: std.process.Init) !void {
 
     if (comptime mbedtls.runtime_loaded) {
         try mbedtls.load(.{ .path = try providerRequest(init) });
-        // `load` returned, so there is a source; naming the unreachable case
-        // beats printing a provider this process does not have.
+        // A successful load must yield its retained provider request.
         const provider = mbedtls.loadedSource() orelse return error.ProviderNotLoaded;
         try w.print("{s: <44}{s}: {s}\n", .{
             "provider",
@@ -240,11 +185,7 @@ fn certificateChecks(w: *std.Io.Writer) !void {
     try check(w, "server says it is not a CA", server.isCa(), false);
     try checkCount(w, "server RSA modulus bits", server.rsaBitLength() orelse 0, 2048);
 
-    // What this build does with the vendored chain under the library's own
-    // default policy: it refuses it, and the only reason it reports is the
-    // unacceptable hash. Both fixture certificates are `sha1WithRSAEncryption`
-    // and `mbedtls_x509_crt_profile_default` is "hashes from SHA-256 and above"
-    // (`src/library/x509_crt.c:89-97`).
+    // The default SHA-256-and-higher profile rejects this SHA-1 fixture.
     var default_flags: u32 = 0;
     if (server.verifyInto(&ca, &default_flags)) |_| {
         std.debug.print("smoke: the SHA-1 chain verified under the default profile\n", .{});
@@ -252,9 +193,7 @@ fn certificateChecks(w: *std.Io.Writer) !void {
     } else |_| {}
     try checkCount(w, "default-profile flags for the SHA-1 chain", default_flags, badcert_bad_md);
 
-    // The same chain, same CA, and the profile a caller must name to accept a
-    // peer that still signs with SHA-1. What OpenSSL independently reported as
-    // `server2.crt: OK`.
+    // Verify the SHA-1 fixture only under an explicitly widened profile.
     var profile = legacySha1();
     var flags: u32 = 0;
     server.verifyIntoWithProfile(&ca, &profile, &flags) catch |err| {
@@ -263,7 +202,7 @@ fn certificateChecks(w: *std.Io.Writer) !void {
     };
     try checkCount(w, "verify flags for the chain under legacy_sha1", flags, 0);
 
-    // And the negative: a leaf is not its own anchor.
+    // A leaf certificate cannot verify against itself.
     var self_flags: u32 = 0;
     if (server.verifyIntoWithProfile(&server, &profile, &self_flags)) |_| {
         std.debug.print("smoke: the server certificate verified against itself\n", .{});
@@ -276,17 +215,12 @@ fn certificateChecks(w: *std.Io.Writer) !void {
     if (entropy.gather()) |_| {
         try w.print("{s: <44}{s}\n", .{ "entropy gather", "ok" });
     } else |_| {
-        // A platform where upstream found no strong source cannot gather. That
-        // is a fact about the host, printed rather than asserted, because this
-        // program's job is to report what this build does.
+        // Missing platform entropy is reported, not treated as a failed smoke check.
         try w.print("{s: <44}{s}\n", .{ "entropy gather", "no strong source on this host" });
     }
 }
 
-/// A real handshake over a loopback socket, against the fixture and nothing else.
-///
-/// Skipped, not faked, where the platform has no BSD sockets: the line says so
-/// rather than printing a value nobody checked.
+/// Run a loopback TLS handshake; skip rather than fake it without socket support.
 fn handshake(w: *std.Io.Writer) !void {
     if (!has_socket_transport) {
         try w.print("{s: <44}{s}\n", .{
@@ -329,21 +263,13 @@ fn handshake(w: *std.Io.Writer) !void {
             private: *mbedtls.PrivateKey,
             alloc: std.mem.Allocator,
         ) void {
-            // The server owns its entropy context and its own generator rather
-            // than borrowing the client's. This build compiles
-            // `MBEDTLS_THREADING_C` off, so the context has no mutex and
-            // upstream documents every entry point as "thread-safe if
-            // MBEDTLS_THREADING_C is enabled"
-            // (`src/include/mbedtls/entropy.h:146,167,178,190`); two threads
-            // drawing from one context is a race this program does not enter.
+            // Separate entropy contexts avoid races because `MBEDTLS_THREADING_C` is off.
             var server_entropy = mbedtls.Entropy.init();
             defer server_entropy.deinit();
             var server_drbg = mbedtls.Drbg.init();
             defer server_drbg.deinit();
             server_drbg.seed(&server_entropy) catch {
-                // The thread cannot return an error, and a server that never
-                // got a generator would fail the handshake with the client
-                // reporting a closed connection - so the reason is printed.
+                // Print the seed failure because the thread cannot return errors.
                 std.debug.print("smoke: the server's generator did not seed\n", .{});
                 return;
             };
@@ -352,14 +278,11 @@ fn handshake(w: *std.Io.Writer) !void {
             defer config.deinit();
             config.authMode(.none);
             config.rng(&server_drbg);
-            // Both ends pinned to one version, so the negotiated answer is a
-            // literal rather than "whichever the preference order chose".
+            // Pin both endpoints to TLS 1.2 for a stable negotiated result.
             config.minVersion(.tls1_2);
             config.maxVersion(.tls1_2);
             config.ownCertificate(chain, private);
-            // The server verifies no peer, so this profile changes nothing
-            // here; it is named on both ends so the policy of the exchange is
-            // stated once, where a reader sees the client copy below.
+            // The server does not verify peers; the client applies the profile.
             var profile = legacySha1();
             config.certProfile(&profile);
 
@@ -375,9 +298,7 @@ fn handshake(w: *std.Io.Writer) !void {
                 return;
             };
             endpoint.setSocket(&connection);
-            // The reason is printed, not swallowed: a server thread that
-            // returns silently leaves the client reporting a closed connection,
-            // which names the symptom and not the cause.
+            // Print the server-side cause before the client sees a closed connection.
             endpoint.handshake() catch |err| {
                 std.debug.print("smoke: the server handshake failed: {s}\n", .{@errorName(err)});
                 return;
@@ -421,9 +342,7 @@ fn handshake(w: *std.Io.Writer) !void {
     client_config.caChain(&ca);
     client_config.minVersion(.tls1_2);
     client_config.maxVersion(.tls1_2);
-    // The vendored chain is SHA-1 signed, so the client's verification profile
-    // has to name that, and `certificateChecks` above prints what the default
-    // profile does with the same two files.
+    // This handshake opts into SHA-1; the default refusal is checked above.
     var profile = legacySha1();
     client_config.certProfile(&profile);
 
@@ -465,12 +384,8 @@ fn handshake(w: *std.Io.Writer) !void {
     client.closeNotify();
 }
 
-/// The provider a runtime-loading build was pointed at.
-///
-/// `--provider <path>` or `MBED_TLS_TEST_PROVIDER`, both explicit. Nothing is
-/// looked for in a default location and no other file is tried: a
-/// runtime-loading build that was not told where its provider is stops with a
-/// message saying so, rather than resolving a library it was not asked for.
+/// Read an explicit runtime provider path from `--provider` or `MBED_TLS_TEST_PROVIDER`.
+/// No default location is searched; missing configuration returns `NoProviderConfigured`.
 fn providerRequest(init: std.process.Init) ![]const u8 {
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     var index: usize = 1;
@@ -490,13 +405,6 @@ fn providerRequest(init: std.process.Init) ![]const u8 {
     );
     return error.NoProviderConfigured;
 }
-
-// ---------------------------------------------------------------------------
-// The check helpers
-//
-// Print, then compare, then fail through the return type. Nothing here calls
-// `exit`, and nothing here allocates.
-// ---------------------------------------------------------------------------
 
 fn check(w: *std.Io.Writer, what: []const u8, got: bool, expected: bool) CheckError!void {
     try w.print("{s: <44}{s}\n", .{ what, if (got) "yes" else "no" });
@@ -533,10 +441,7 @@ fn checkString(
     }
 }
 
-/// Compares bytes by printing them as hex straight to the writer.
-///
-/// `{x}` formats one byte as two hex digits through `std/Io/Writer`'s
-/// `printHex`, so no formatting buffer is needed and no allocation happens.
+/// Print bytes as hexadecimal without allocating.
 fn checkBytes(
     w: *std.Io.Writer,
     what: []const u8,
@@ -568,14 +473,7 @@ fn checkBytes(
     }
 }
 
-/// Decodes a lower-case hex string into `out`, or null when `text` is not one
-/// or does not fit.
-///
-/// The literals are kept as hex rather than as byte arrays because that is how
-/// the standards print them, so a reader comparing this file against FIPS 180-4
-/// can see that the two are the same string. The decoder is total: any
-/// character that is not a hex digit, or an odd length, is a bug in this file
-/// and is reported rather than tolerated.
+/// Decode lower-case hexadecimal into `out`, or return null if invalid or too large.
 fn decodeHex(text: []const u8, out: []u8) ?[]const u8 {
     if (text.len % 2 != 0 or text.len / 2 > out.len) return null;
     var index: usize = 0;

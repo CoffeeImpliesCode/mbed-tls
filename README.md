@@ -46,12 +46,8 @@ The Nix flake provides static and shared packages for `x86_64-linux`, `aarch64-l
 
 ## Consumption
 
-Place a local checkout inside the dependent package root. Zig 0.17 rejects local dependency paths outside that root.
-
-```zig
-.dependencies = .{
-    .@"mbed-tls" = .{ .path = "deps/mbed-tls" },
-},
+```sh
+zig fetch --save git+https://github.com/CoffeeImpliesCode/mbed-tls#v3.6.7
 ```
 
 Then add the module and, if needed, request individual archives:

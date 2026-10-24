@@ -49,8 +49,7 @@ pub fn build(b: *std.Build) void {
 /// Embeds the dependency's published TLS fixtures in a generated module.
 fn addFixtureModule(b: *std.Build, dep: *std.Build.Dependency) *std.Build.Module {
     const files = b.addWriteFiles();
-    const root = files.add(
-        "fixtures.zig",
+    const root = files.add("fixtures.zig",
         \\pub const ca = @embedFile("test-ca.crt");
         \\pub const server_cert = @embedFile("server2.crt");
         \\pub const server_key = @embedFile("server2.key");

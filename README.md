@@ -27,15 +27,16 @@ The libraries build in upstream order: `mbedcrypto`, `mbedx509`, then `mbedtls`.
 ## Support matrix
 
 `zig build check` compiles the libraries, tests and example for these targets. It does not run them. This is a configured target list, not a runtime test result.
+The matrix omits static-only targets with `-Dlinkage=dynamic` and targets without runtime loading with `-Druntime=true`. An explicit cross target checks only that target.
 
 | Target | Boundary |
 |---|---|
 | `x86_64-linux-gnu` | Compile-only check target. |
 | `aarch64-linux-gnu` | Compile-only check target. |
 | `aarch64-macos-none` | Compile-only check target. |
-| `x86_64-windows-gnu` | Compile-only check target. Windows exports use a module definition file. |
+| `x86_64-windows-gnu` | Static linkage only. Runtime loading is available. |
 | `riscv64-linux-gnu` | Compile-only check target. |
-| `wasm32-wasi` | Networking is disabled. Dynamic loading is unavailable. |
+| `wasm32-wasi` | Static linkage only. Networking and runtime loading are unavailable. |
 
 FreeBSD adds `__BSD_VISIBLE=1` for `explicit_bzero`. OpenBSD needs no extra define.
 Mach-O shared libraries use no version script, so they also export internal symbols.

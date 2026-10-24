@@ -134,7 +134,7 @@ const Options = struct {
     }
 };
 
-/// Split and trim comma-separated symbol prefixes.
+/// Split and trim comma-separated prefixes; transfer the slice to the caller.
 fn addPrefixes(
     arena: std.mem.Allocator,
     into: *[]const []const u8,
@@ -148,7 +148,7 @@ fn addPrefixes(
         if (head.len == 0) continue;
         try grown.append(arena, head);
     }
-    into.* = grown.items;
+    into.* = try grown.toOwnedSlice(arena);
 }
 
 fn take(args: []const [:0]const u8, index: *usize) []const u8 {
@@ -223,7 +223,7 @@ fn generate(
     options: Options,
 ) Failure!struct { dispatch: []const u8, native: []const u8 } {
     const source_z = try readSentinel(io, arena, options.translate);
-    var tree = try Ast.parse(arena, source_z, .zig);
+    var tree = try Ast.parse(arena, source_z, .{ .mode = .zig });
     defer tree.deinit(arena);
 
     if (tree.errors.len != 0) {
@@ -558,9 +558,7 @@ fn planVariable(
                 const type_last = tree.lastToken(type_node);
                 // Avoid `@TypeOf` on extern objects, which can create a direct link.
                 // Reuse translated types to preserve nominal identity.
-                decl.field_type = tree.source[
-                    tree.tokenStart(type_first)..tree.tokenStart(type_last) + tree.tokenSlice(type_last).len
-                ];
+                decl.field_type = tree.source[tree.tokenStart(type_first) .. tree.tokenStart(type_last) + tree.tokenSlice(type_last).len];
                 decl.address_value = true;
                 return decl;
             }
@@ -602,9 +600,7 @@ fn dataTypeText(
         );
         return error.UnsupportedDeclaration;
     };
-    const text = tree.source[
-        tree.tokenStart(tree.firstToken(type_node))..tree.tokenStart(last)
-    ];
+    const text = tree.source[tree.tokenStart(tree.firstToken(type_node))..tree.tokenStart(last)];
     if (std.mem.indexOfScalar(u8, text, '=') != null) {
         std.debug.print(
             "runtime/generate.zig: extern '{s}' is initialized; an exported object " ++
@@ -1316,4 +1312,43 @@ fn declarationName(
         if (tree.tokenTag(index) == .identifier) return tree.tokenSlice(index);
     }
     return null;
+}
+
+test "prefix parsing transfers storage to the options" {
+    const allocator = std.testing.allocator;
+    const options = try Options.parse(allocator, &.{
+        "generate", "--library",    "mbedtls",  "--translate",        "translated.zig",
+        "--output", "dispatch.zig", "--prefix", " mbedtls_, , psa_ ",
+    });
+    defer allocator.free(options.prefix);
+
+    try std.testing.expectEqual(@as(usize, 2), options.prefix.len);
+    try std.testing.expectEqualStrings("mbedtls_", options.prefix[0]);
+    try std.testing.expectEqualStrings("psa_", options.prefix[1]);
+    try std.testing.expectEqual(Options.Route.routed, options.routeOf("mbedtls_version_get_number"));
+    try std.testing.expectEqual(Options.Route.routed, options.routeOf("psa_crypto_init"));
+    try std.testing.expectEqual(Options.Route.direct, options.routeOf("malloc"));
+}
+
+test "prefix planning requires Mbed TLS and PSA functions but leaves libc direct" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const options = try Options.parse(arena, &.{
+        "generate", "--library",    "mbedtls",  "--translate",   "translated.zig",
+        "--output", "dispatch.zig", "--prefix", "mbedtls_,psa_",
+    });
+    var tree = try Ast.parse(arena,
+        \\pub extern fn mbedtls_version_get_number() c_uint;
+        \\pub extern fn psa_crypto_init() i32;
+        \\pub extern fn malloc(size: usize) ?*anyopaque;
+    , .{ .mode = .zig });
+    defer tree.deinit(arena);
+    try std.testing.expectEqual(@as(usize, 0), tree.errors.len);
+
+    const plan = try planDeclarations(arena, options, &tree);
+    try std.testing.expectEqual(@as(usize, 2), countRouted(plan.decls));
+    try std.testing.expectEqual(Class.routed_function, plan.decls[0].class);
+    try std.testing.expectEqual(Class.routed_function, plan.decls[1].class);
+    try std.testing.expectEqual(Class.copied, plan.decls[2].class);
 }

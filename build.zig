@@ -14,7 +14,7 @@
 //!
 //! `zig build` installs libraries, headers, configuration, pkg-config and licences.
 //! `test` and `smoke` run; `consumer` builds or runs its example; `check`
-//! compiles six targets without running. Root `cross-test.profile.sh` configures them.
+//! compiles compatible matrix targets without running. `cross-test.profile.sh` configures cross-test.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -670,6 +670,11 @@ fn addGraph(
             .link_libc = true,
         });
 
+    // C preserves the target ABI for accessors over cipher_info's bitfields.
+    module.addIncludePath(generated.directory);
+    module.addCMacro("MBEDTLS_CONFIG_FILE", b.fmt("\"{s}\"", .{config_gen.output_basename}));
+    module.addCSourceFile(.{ .file = b.path("zig/inline.c"), .flags = cFlags(platform) });
+
     // Runtime mode imports generated dispatch and does not link archives.
     // Linked mode imports translated C and core types, then links all three archives.
     if (runtime_loaded) {
@@ -804,12 +809,11 @@ fn add_pkg_config(
 fn add_target_check(
     b: *std.Build,
     step: *std.Build.Step,
-    query: std.Target.Query,
+    cross_target: std.Build.ResolvedTarget,
     optimize: std.lang.Optimize,
     linkage: std.lang.LinkMode,
     runtime_loaded: bool,
 ) void {
-    const cross_target = b.resolveTargetQuery(query);
     // Refuse unsupported targets before choosing the library linkage.
     if (refusalFor(cross_target.result.os.tag) != null) {
         refuseTarget(b, cross_target.result.os.tag);
@@ -817,6 +821,10 @@ fn add_target_check(
 
     const triple = cross_target.result.zigTriple(b.allocator) catch @panic("unspellable target");
     const cross = addGraph(b, cross_target, optimize, linkage, runtime_loaded, false);
+    // Runtime facades do not link these libraries.
+    for ([_]*std.Build.Step.Compile{ cross.crypto, cross.x509, cross.tls }) |lib| {
+        step.dependOn(&lib.step);
+    }
 
     // Call the facade so Zig analyzes its bodies for each check target.
     const test_mod = b.createModule(.{
@@ -905,10 +913,9 @@ pub fn build(b: *std.Build) void {
     const system_default = b.option(
         bool,
         "system",
-        "Link an installed Mbed TLS instead of compiling src/, and translate the " ++
-            "installed headers instead of the bundled ones. Supplies the default " ++
-            "of systemIntegrationOption(\"mbedtls\"); a build runner that decides " ++
-            "the mode itself (-fsys=mbedtls) overrides it.",
+        "Unsupported: requesting an installed Mbed TLS fails configuration. " ++
+            "Sets the default of systemIntegrationOption(\"mbedtls\"); " ++
+            "-fsys=mbedtls overrides it.",
     ) orelse false;
     const use_system = b.systemIntegrationOption(tls_name, .{ .default = system_default });
 
@@ -1004,7 +1011,17 @@ pub fn build(b: *std.Build) void {
     });
     const run_tests = b.addRunArtifact(unit_tests);
     run_tests.has_side_effects = true;
-    b.step("test", "Run the behavioural tests for the selected target").dependOn(&run_tests.step);
+    const test_step = b.step("test", "Run the behavioural tests for the selected target");
+    test_step.dependOn(&run_tests.step);
+    const generator_tests = b.addTest(.{
+        .name = "mbed-tls-runtime-generator-tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("runtime/generate.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(generator_tests).step);
 
     const example_mod = b.createModule(.{
         .root_source_file = b.path(smoke_source),
@@ -1029,14 +1046,21 @@ pub fn build(b: *std.Build) void {
 
     const check_step = b.step(
         "check",
-        "Compile the libraries, the facade, the tests and the example for each " ++
-            "of the six cross targets without running any of them",
+        "Compile the libraries, facade, tests and example for compatible " ++
+            "cross targets without running them",
     );
     if (!target.query.isNative()) {
-        add_target_check(b, check_step, target.query, optimize, delivered, runtime_loaded);
+        add_target_check(b, check_step, target, optimize, delivered, runtime_loaded);
     } else {
         for (check_targets[0..]) |query| {
-            add_target_check(b, check_step, query, optimize, delivered, runtime_loaded);
+            const cross_target = b.resolveTargetQuery(query);
+            // Auxiliary targets must support the selected mode.
+            if (delivered == .dynamic and !targetHasDynamicLinker(cross_target)) continue;
+            if (runtime_loaded and switch (cross_target.result.os.tag) {
+                .wasi, .emscripten, .freestanding => true,
+                else => false,
+            }) continue;
+            add_target_check(b, check_step, cross_target, optimize, delivered, runtime_loaded);
         }
     }
 }

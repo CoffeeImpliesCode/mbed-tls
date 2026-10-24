@@ -16,8 +16,19 @@ const provider_prefix = "mbedtls_,psa_";
 /// No libc symbols are routed; the positive prefix rule selects Mbed TLS only.
 const libc_noise = "";
 
-/// Every public-header entry point is required from the provider.
-const provider_optional = "";
+/// Upstream declares these APIs even though their implementations are disabled.
+/// `config_gen.zig` preserves the three disabled upstream options on every target.
+const provider_optional =
+    // MBEDTLS_MEMORY_BUFFER_ALLOC_C: src/library/memory_buffer_alloc.c:10.
+    "mbedtls_memory_buffer_alloc_init,mbedtls_memory_buffer_alloc_free," ++
+    "mbedtls_memory_buffer_set_verify,mbedtls_memory_buffer_alloc_verify," ++
+    "mbedtls_memory_buffer_alloc_self_test," ++
+    // MBEDTLS_PSA_CRYPTO_SE_C: src/library/psa_crypto_se.c:11.
+    "psa_register_se_driver," ++
+    // MBEDTLS_PSA_INJECT_ENTROPY: src/library/psa_crypto.c:8115.
+    "mbedtls_psa_inject_entropy," ++
+    // Declared at src/include/psa/crypto.h:4013 and :4078 (verify_bytes/verify_key); no implementation in 3.6.7.
+    "psa_key_derivation_verify_bytes,psa_key_derivation_verify_key";
 
 const provider_excluded = "";
 

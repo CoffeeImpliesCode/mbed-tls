@@ -79,7 +79,7 @@ These groups account for all 336 imported upstream files. `UPSTREAM.sha256` reco
 Fork-authored files outside `src/`, `fixtures/`, and `README.upstream.md` are covered by the dual `Apache-2.0 OR GPL-2.0-or-later` grant in `FORK-LICENSE.md`; no upstream copyright is claimed over them. The fork-authored paths are:
 
 - `build.zig`, `build.zig.zon`, `cross-test.profile.sh`, `tools/check-provenance.sh`
-- `zig/root.zig`, `zig/translate.h`, `zig/config_gen.zig`
+- `zig/root.zig`, `zig/translate.h`, `zig/inline.c`, `zig/config_gen.zig`
 - `runtime/loader.zig`, `runtime/library.zig`, `runtime/graph.zig`, `runtime/generate.zig`, `runtime/sync.c`, `runtime/sync.h`
 - `consumer/build.zig`, `consumer/build.zig.zon`, `consumer/src/main.zig`
 - `tests.zig`, `smoke.zig`, `README.md`, `CHANGELOG.md`, `FORK-NOTES.md`

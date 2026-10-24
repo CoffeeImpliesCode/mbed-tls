@@ -1,5 +1,10 @@
 # Changelog
 
+- Keep cipher bitfield accessors local instead of requiring nonexistent provider exports; fix runtime readiness queries.
+- Load runtime providers before smoke version calls; require only configured APIs and name missing exports.
+- Fix runtime builds with either linkage: provider argument handling, bounded version scanning and default certificate-profile dispatch.
+- Keep runtime symbol prefixes alive through dispatch generation for both linkage modes.
+- Filter incompatible cross-check targets for dynamic linkage and runtime loading; compile native libraries in runtime checks.
 - Port to Zig 0.17.0.
 - Generate target configuration exhaustively for Zig CPU architectures and disable platform entropy where sockets are unavailable.
 - Link Windows builds with `bcrypt` and `ws2_32`; expose FreeBSD's `explicit_bzero` declaration with `__BSD_VISIBLE`.

@@ -2,9 +2,9 @@
  *
  * The one header `zig translate-c` reads for this package.
  *
- * It includes no macro of its own and declares nothing of its own. Every
- * declaration the translation carries is the one the named upstream header
- * declares, byte for byte, because none of them is written here.
+ * Cipher accessors use local C wrappers because translate-c cannot read the
+ * bitfields in mbedtls_cipher_info_t. Their Zig names retain the upstream API;
+ * the zig_mbedtls_ symbols are linked locally, never loaded from a provider.
  *
  * ## Why this file exists
  *
@@ -41,20 +41,34 @@
  * own default configuration does. Naming the file here would include a header
  * whose whole content is inside a guard that is not set.
  *
- * Everything else under `psa/` is named, including the driver and composite
- * headers, because `psa/crypto.h` reaches them and because a provider built
- * with the same configuration exports what they declare.
+ * Everything else under `psa/` is named, including public driver and
+ * composite types.
  *
  * ## Why the file list is explicit rather than a glob
  *
- * A glob would silently change what this package's ABI is the next time
- * upstream adds a header, and it would do so in a commit whose diff is one
- * line. These names are the API surface, so a change to them is a change to
- * what a provider must export, and it should read like one.
+ * A glob would silently change the translated API when upstream adds a
+ * header. This list selects both provider entry points and local inline
+ * functions.
  */
 
 #ifndef MBED_TLS_ZIG_TRANSLATE_H
 #define MBED_TLS_ZIG_TRANSLATE_H
+
+/* Keep demoted inline accessors outside the provider's symbol namespace. */
+#define mbedtls_cipher_info_get_type zig_mbedtls_cipher_info_get_type
+#define mbedtls_cipher_info_get_mode zig_mbedtls_cipher_info_get_mode
+#define mbedtls_cipher_info_get_key_bitlen zig_mbedtls_cipher_info_get_key_bitlen
+#define mbedtls_cipher_info_get_name zig_mbedtls_cipher_info_get_name
+#define mbedtls_cipher_info_get_iv_size zig_mbedtls_cipher_info_get_iv_size
+#define mbedtls_cipher_info_get_block_size zig_mbedtls_cipher_info_get_block_size
+#define mbedtls_cipher_info_has_variable_key_bitlen zig_mbedtls_cipher_info_has_variable_key_bitlen
+#define mbedtls_cipher_info_has_variable_iv_size zig_mbedtls_cipher_info_has_variable_iv_size
+#define mbedtls_cipher_get_block_size zig_mbedtls_cipher_get_block_size
+#define mbedtls_cipher_get_cipher_mode zig_mbedtls_cipher_get_cipher_mode
+#define mbedtls_cipher_get_iv_size zig_mbedtls_cipher_get_iv_size
+#define mbedtls_cipher_get_type zig_mbedtls_cipher_get_type
+#define mbedtls_cipher_get_name zig_mbedtls_cipher_get_name
+#define mbedtls_cipher_get_key_bitlen zig_mbedtls_cipher_get_key_bitlen
 
 /* Configuration first, and on its own: every other header below reads it. */
 #include <mbedtls/build_info.h>

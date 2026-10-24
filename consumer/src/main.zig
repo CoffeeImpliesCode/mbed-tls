@@ -67,7 +67,7 @@ fn providerRequest(init: std.process.Init) []const u8 {
 }
 
 /// Stop when a runtime-loaded build has no explicit provider.
-fn noProvider() []const u8 {
+fn noProvider() noreturn {
     std.debug.panic(
         "consumer: this is a runtime-loading build. Pass --provider <path>, or " ++
             "export MBED_TLS_TEST_PROVIDER with a shared object exporting the " ++

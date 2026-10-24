@@ -7,7 +7,7 @@
 
 const std = @import("std");
 
-/// The translated public headers, verbatim.
+/// Translated public headers; cipher bitfield accessors use local C wrappers.
 pub const c = @import("c");
 
 /// Loader core supplies `LoadSource` and `LoadError` in linked builds.
@@ -43,7 +43,7 @@ pub fn loadedSource() ?LoadSource {
 
 /// Whether the library is ready; runtime builds use the loader's acquire-ordered state.
 pub fn ready() bool {
-    if (runtime_loaded) return c.rt_is_ready();
+    if (runtime_loaded) return c.ready.isReady();
     return true;
 }
 
@@ -337,7 +337,7 @@ pub const Aes128Cbc = struct {
     initialized: bool = false,
 
     /// Set an encryption key; returns BadKeyLength or Failed.
-    pub fn initEncrypt(key: []const u8) (error{BadKeyLength, Failed}!Aes128Cbc) {
+    pub fn initEncrypt(key: []const u8) (error{ BadKeyLength, Failed }!Aes128Cbc) {
         var self: Aes128Cbc = .{ .context = undefined };
         c.mbedtls_aes_init(&self.context);
         self.initialized = true;
@@ -354,7 +354,7 @@ pub const Aes128Cbc = struct {
     }
 
     /// Set a decryption key; returns BadKeyLength or Failed.
-    pub fn initDecrypt(key: []const u8) (error{BadKeyLength, Failed}!Aes128Cbc) {
+    pub fn initDecrypt(key: []const u8) (error{ BadKeyLength, Failed }!Aes128Cbc) {
         var self: Aes128Cbc = .{ .context = undefined };
         c.mbedtls_aes_init(&self.context);
         self.initialized = true;
@@ -406,7 +406,7 @@ pub const Aes128Gcm = struct {
     initialized: bool = false,
 
     /// Initialize an AES-128 key; returns BadKeyLength or Failed.
-    pub fn init(key: []const u8) (error{BadKeyLength, Failed}!Aes128Gcm) {
+    pub fn init(key: []const u8) (error{ BadKeyLength, Failed }!Aes128Gcm) {
         var self: Aes128Gcm = .{ .context = undefined };
         c.mbedtls_gcm_init(&self.context);
         self.initialized = true;
@@ -497,7 +497,7 @@ pub const ChaCha20Poly1305 = struct {
     initialized: bool = false,
 
     /// Initialize a 32-byte key; returns BadKeyLength or Failed.
-    pub fn init(key: []const u8) (error{BadKeyLength, Failed}!ChaCha20Poly1305) {
+    pub fn init(key: []const u8) (error{ BadKeyLength, Failed }!ChaCha20Poly1305) {
         var self: ChaCha20Poly1305 = .{ .context = undefined };
         c.mbedtls_chachapoly_init(&self.context);
         self.initialized = true;
@@ -652,7 +652,7 @@ pub const Drbg = struct {
 
     /// Fill output; requests above `MBEDTLS_CTR_DRBG_MAX_REQUEST` return `RequestTooLarge`.
     /// Other generation failures return `Failed`.
-    pub fn fill(self: *Drbg, out: []u8) error{RequestTooLarge, Failed}!void {
+    pub fn fill(self: *Drbg, out: []u8) error{ RequestTooLarge, Failed }!void {
         if (out.len == 0) return;
         if (out.len > c.MBEDTLS_CTR_DRBG_MAX_REQUEST) return error.RequestTooLarge;
         const status = c.mbedtls_ctr_drbg_random(&self.context, out.ptr, out.len);
@@ -688,7 +688,10 @@ pub const CertificateProfile = struct {
 
     /// Return upstream's default profile, which rejects SHA-1 signatures.
     pub fn default() CertificateProfile {
-        return .{ .inner = c.mbedtls_x509_crt_profile_default };
+        return .{ .inner = if (runtime_loaded)
+            c.mbedtls_x509_crt_profile_defaultAddr().*
+        else
+            c.mbedtls_x509_crt_profile_default };
     }
 
     /// Return a copy of this profile with `md` added to allowed signature hashes.

@@ -87,7 +87,7 @@ pub fn Config(comptime dispatch: type) type {
             // The 32-byte buffer exceeds the header's 18-byte maximum for this release.
             var version: [32]u8 = @splat(0);
             dst.mbedtls_version_get_string_full(&version);
-            const reported = std.mem.sliceTo(@as([:0]const u8, &version), 0);
+            const reported = std.mem.sliceTo(version[0..], 0);
             if (!std.mem.startsWith(u8, reported, family_prefix)) {
                 // Include the observed version; `validate` has no allocator.
                 std.debug.print(

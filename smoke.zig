@@ -58,8 +58,20 @@ const port = "39501";
 /// Mirrors the `MBEDTLS_NET_C` decision in `config_gen.zig`.
 const has_socket_transport = switch (builtin.os.tag) {
     .windows => true,
-    .linux, .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .openbsd,
-    .dragonfly, .illumos, .hurd, .fuchsia, .haiku,
+    .linux,
+    .macos,
+    .ios,
+    .tvos,
+    .watchos,
+    .visionos,
+    .freebsd,
+    .netbsd,
+    .openbsd,
+    .dragonfly,
+    .illumos,
+    .hurd,
+    .fuchsia,
+    .haiku,
     => true,
     else => false,
 };
@@ -72,11 +84,6 @@ pub fn main(init: std.process.Init) !void {
     const w = &stdout.interface;
 
     try w.print("mbed-tls smoke\n", .{});
-    // Print the configuration and library version; neither is compared.
-    var version: [32]u8 = undefined;
-    const reported = mbedtls.versionString(&version) catch "3.6.7 (buffer too small)";
-    try w.print("{s: <44}{s}\n", .{ "configuration", if (mbedtls.runtime_loaded) "loaded" else "linked" });
-    try w.print("{s: <44}{s}\n", .{ "the library reports version", reported });
 
     if (comptime mbedtls.runtime_loaded) {
         try mbedtls.load(.{ .path = try providerRequest(init) });
@@ -91,6 +98,11 @@ pub fn main(init: std.process.Init) !void {
             },
         });
     }
+    // Print the configuration and library version; neither is compared.
+    var version: [32]u8 = undefined;
+    const reported = mbedtls.versionString(&version) catch "3.6.7 (buffer too small)";
+    try w.print("{s: <44}{s}\n", .{ "configuration", if (mbedtls.runtime_loaded) "loaded" else "linked" });
+    try w.print("{s: <44}{s}\n", .{ "the library reports version", reported });
 
     try cryptoChecks(w);
     try certificateChecks(w);

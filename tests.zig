@@ -142,6 +142,116 @@ fn loadProvider() !void {
     }
 }
 
+test "runtime translation requires Mbed TLS and PSA functions and profile data" {
+    if (comptime mbedtls.runtime_loaded) {
+        try testing.expect(mbedtls.c.symbols.len != 0);
+        inline for (.{ "mbedtls_version_get_number", "psa_crypto_init", "mbedtls_x509_crt_profile_default" }) |required| {
+            const found = for (mbedtls.c.symbols) |symbol| {
+                if (std.mem.eql(u8, symbol.name, required)) break true;
+            } else false;
+            try testing.expect(found);
+            try testing.expect(@hasField(mbedtls.c.Table, required));
+        }
+    }
+}
+
+test "runtime provider does not require APIs disabled in the generated configuration" {
+    if (comptime mbedtls.runtime_loaded) {
+        try testing.expect(!@hasDecl(mbedtls.c, "MBEDTLS_MEMORY_BUFFER_ALLOC_C"));
+        try testing.expect(!@hasDecl(mbedtls.c, "MBEDTLS_PSA_CRYPTO_SE_C"));
+        try testing.expect(!@hasDecl(mbedtls.c, "MBEDTLS_PSA_INJECT_ENTROPY"));
+        inline for (.{
+            "mbedtls_memory_buffer_alloc_init",
+            "mbedtls_memory_buffer_alloc_free",
+            "mbedtls_memory_buffer_set_verify",
+            "mbedtls_memory_buffer_alloc_verify",
+            "mbedtls_memory_buffer_alloc_self_test",
+            "psa_register_se_driver",
+            "mbedtls_psa_inject_entropy",
+        }) |disabled| {
+            for (mbedtls.c.symbols) |symbol| {
+                try testing.expect(!std.mem.eql(u8, symbol.name, disabled));
+            }
+            const optional = for (mbedtls.c.optional_symbols) |symbol| {
+                if (std.mem.eql(u8, symbol.name, disabled)) break true;
+            } else false;
+            try testing.expect(optional);
+        }
+        try loadProvider();
+        try testing.expect(mbedtls.ready());
+    }
+}
+
+test "cipher inline accessors stay local and read provider cipher information" {
+    const c = mbedtls.c;
+    if (comptime mbedtls.runtime_loaded) {
+        inline for (.{
+            "mbedtls_cipher_info_get_type",
+            "mbedtls_cipher_info_get_mode",
+            "mbedtls_cipher_info_get_key_bitlen",
+            "mbedtls_cipher_info_get_name",
+            "mbedtls_cipher_info_get_iv_size",
+            "mbedtls_cipher_info_get_block_size",
+            "mbedtls_cipher_info_has_variable_key_bitlen",
+            "mbedtls_cipher_info_has_variable_iv_size",
+            "mbedtls_cipher_get_block_size",
+            "mbedtls_cipher_get_cipher_mode",
+            "mbedtls_cipher_get_iv_size",
+            "mbedtls_cipher_get_type",
+            "mbedtls_cipher_get_name",
+            "mbedtls_cipher_get_key_bitlen",
+        }) |local| {
+            for (c.symbols) |symbol| {
+                try testing.expect(!std.mem.eql(u8, symbol.name, local));
+                try testing.expect(!std.mem.startsWith(u8, symbol.name, "zig_mbedtls_"));
+            }
+            for (c.optional_symbols) |symbol| {
+                try testing.expect(!std.mem.eql(u8, symbol.name, local));
+            }
+        }
+    }
+    try loadProvider();
+    try testing.expect(mbedtls.ready());
+
+    try testing.expectEqual(@as(c.mbedtls_cipher_type_t, c.MBEDTLS_CIPHER_NONE), c.mbedtls_cipher_info_get_type(null));
+    try testing.expectEqual(@as(c.mbedtls_cipher_mode_t, c.MBEDTLS_MODE_NONE), c.mbedtls_cipher_info_get_mode(null));
+    try testing.expectEqual(@as(usize, 0), c.mbedtls_cipher_info_get_key_bitlen(null));
+    try testing.expect(c.mbedtls_cipher_info_get_name(null) == null);
+    try testing.expectEqual(@as(usize, 0), c.mbedtls_cipher_info_get_iv_size(null));
+    try testing.expectEqual(@as(usize, 0), c.mbedtls_cipher_info_get_block_size(null));
+    try testing.expectEqual(@as(c_int, 0), c.mbedtls_cipher_info_has_variable_key_bitlen(null));
+    try testing.expectEqual(@as(c_int, 0), c.mbedtls_cipher_info_has_variable_iv_size(null));
+
+    const info = c.mbedtls_cipher_info_from_type(c.MBEDTLS_CIPHER_AES_128_CBC);
+    try testing.expect(info != null);
+    try testing.expectEqual(@as(c.mbedtls_cipher_type_t, c.MBEDTLS_CIPHER_AES_128_CBC), c.mbedtls_cipher_info_get_type(info));
+    try testing.expectEqual(@as(c.mbedtls_cipher_mode_t, c.MBEDTLS_MODE_CBC), c.mbedtls_cipher_info_get_mode(info));
+    try testing.expectEqual(@as(usize, 128), c.mbedtls_cipher_info_get_key_bitlen(info));
+    try testing.expectEqualStrings("AES-128-CBC", std.mem.span(c.mbedtls_cipher_info_get_name(info)));
+    try testing.expectEqual(@as(usize, 16), c.mbedtls_cipher_info_get_iv_size(info));
+    try testing.expectEqual(@as(usize, 16), c.mbedtls_cipher_info_get_block_size(info));
+    try testing.expectEqual(@as(c_int, 0), c.mbedtls_cipher_info_has_variable_key_bitlen(info));
+    try testing.expectEqual(@as(c_int, 0), c.mbedtls_cipher_info_has_variable_iv_size(info));
+
+    var context: c.mbedtls_cipher_context_t = undefined;
+    c.mbedtls_cipher_init(&context);
+    defer c.mbedtls_cipher_free(&context);
+    try testing.expectEqual(@as(c_uint, 0), c.mbedtls_cipher_get_block_size(&context));
+    try testing.expectEqual(@as(c.mbedtls_cipher_mode_t, c.MBEDTLS_MODE_NONE), c.mbedtls_cipher_get_cipher_mode(&context));
+    try testing.expectEqual(@as(c_int, 0), c.mbedtls_cipher_get_iv_size(&context));
+    try testing.expectEqual(@as(c.mbedtls_cipher_type_t, c.MBEDTLS_CIPHER_NONE), c.mbedtls_cipher_get_type(&context));
+    try testing.expect(c.mbedtls_cipher_get_name(&context) == null);
+    try testing.expectEqual(@as(c_int, c.MBEDTLS_KEY_LENGTH_NONE), c.mbedtls_cipher_get_key_bitlen(&context));
+
+    try testing.expectEqual(@as(c_int, 0), c.mbedtls_cipher_setup(&context, info));
+    try testing.expectEqual(@as(c_uint, 16), c.mbedtls_cipher_get_block_size(&context));
+    try testing.expectEqual(@as(c.mbedtls_cipher_mode_t, c.MBEDTLS_MODE_CBC), c.mbedtls_cipher_get_cipher_mode(&context));
+    try testing.expectEqual(@as(c_int, 16), c.mbedtls_cipher_get_iv_size(&context));
+    try testing.expectEqual(@as(c.mbedtls_cipher_type_t, c.MBEDTLS_CIPHER_AES_128_CBC), c.mbedtls_cipher_get_type(&context));
+    try testing.expectEqualStrings("AES-128-CBC", std.mem.span(c.mbedtls_cipher_get_name(&context)));
+    try testing.expectEqual(@as(c_int, 128), c.mbedtls_cipher_get_key_bitlen(&context));
+}
+
 test "SHA-256 of abc is the digest FIPS 180-4 prints" {
     try loadProvider();
     var digest: [32]u8 = undefined;
@@ -469,7 +579,7 @@ test "a truncated certificate is refused rather than half accepted" {
     defer crt.deinit();
     // The sentinel keeps the parser in PEM mode while the DER is truncated.
     // Incomplete certificate data must return `Malformed`.
-    var half: [server_cert_pem.len / 2 + 1 :0]u8 = undefined;
+    var half: [server_cert_pem.len / 2 + 1:0]u8 = undefined;
     @memcpy(half[0 .. server_cert_pem.len / 2], server_cert_pem[0 .. server_cert_pem.len / 2]);
     half[half.len - 1] = 0;
     const truncated: [:0]const u8 = &half;
@@ -515,8 +625,20 @@ test "a borrowed chain link carries the chain's lifetime, not its own" {
 /// Mirrors the `MBEDTLS_NET_C` decision in `config_gen.zig`.
 const has_socket_transport = switch (builtin.os.tag) {
     .windows => true,
-    .linux, .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .openbsd,
-    .dragonfly, .illumos, .hurd, .fuchsia, .haiku,
+    .linux,
+    .macos,
+    .ios,
+    .tvos,
+    .watchos,
+    .visionos,
+    .freebsd,
+    .netbsd,
+    .openbsd,
+    .dragonfly,
+    .illumos,
+    .hurd,
+    .fuchsia,
+    .haiku,
     => true,
     else => false,
 };
